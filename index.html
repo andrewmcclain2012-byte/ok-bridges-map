@@ -168,7 +168,7 @@
     <div class="list" id="routeList"></div>
   </div>
 </div>
-<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org), US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
+<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org); local 911 points from INCOG, Canadian County, Ardmore, Norman &amp; Guymon; Oklahoma County, Canadian County &amp; Bartlesville parcels; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
@@ -304,9 +304,12 @@ function showCard(k){ for (const [n,id] of Object.entries(cards)){ const c=docum
 document.getElementById('btnAddr').onclick = () => showCard('Addr');
 document.getElementById('btnRoute').onclick = () => showCard('Route');
 
-// ================= v6: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
+// ================= v7: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
 // Providers (all free, no keys): Oklahoma NG911 address points (county 911 rooftop/structure points, ArcGIS Online public layer),
 // US Census geocoder (interpolated along street ranges), OpenStreetMap Nominatim, Photon (komoot).
+// v7 adds local rooftop sources: INCOG 911 address points (Tulsa, Rogers, Wagoner, Creek, Osage), Ardmore/Carter County 911 points,
+// Guymon city address points, City of Norman address points, Canadian County 911 points, Oklahoma County + Canadian County assessor parcels,
+// Bartlesville city parcels; unit stripping, typo tolerance, town-name splitting.
 const OK_BB={w:-103.01,s:33.6,e:-94.42,n:37.01};
 function inOK(lat,lon){ return isFinite(lat)&&isFinite(lon)&&lat>=OK_BB.s&&lat<=OK_BB.n&&lon>=OK_BB.w&&lon<=OK_BB.e; }
 const NG911_URL='https://services.arcgis.com/3xOwF6p0r7IHIjfn/ArcGIS/rest/services/NG911_Address_Points/FeatureServer/0/query';
@@ -321,6 +324,12 @@ const G_TYPES={RD:'ROAD',ST:'STREET',STR:'STREET',AVE:'AVENUE',AV:'AVENUE',BLVD:
 const G_TYPEWORDS=new Set(['ROAD','STREET','AVENUE','BOULEVARD','DRIVE','LANE','COURT','PLACE','CIRCLE','TERRACE','PARKWAY','TRAIL','COVE','POINT','EXPRESSWAY','FREEWAY','TURNPIKE','SQUARE','CROSSING','ALLEY','BEND','RIDGE','HEIGHTS','LOOP','PASS','PATH','WAY','RUN','ROW','TRACE']);
 const G_GENERIC=new Set(['COUNTY','STATE','HIGHWAY','US','ROAD','STREET','OK','OKLAHOMA','ROUTE','THE']);
 const US_ST=new Set('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' '));
+const OK_TOWNS=new Set('ACHILLE|ADA|ADAIR|ADAMS|ADAMSON|ADDINGTON|AFTON|AGRA|AKINS|ALBANY|ALBERT|ALBION|ALDERSON|ALEX|ALINE|ALLEN|ALTUS|ALVA|AMBER|AMES|AMORITA|ANADARKO|ANTELRS|ANTLERES|ANTLERS|ANTLERSS|APACHE|ARAPAHO|ARCADIA|ARDMORE|ARGYLE|ARKOMA|ARLINGTON|ARMSTRONG|ARNETT|ARPELAR|ASHER|ASHLAND|ATOKA|ATWOOD|AVANT|AVARD|BACHE|BADGER LEE|BAIRD|BAKER|BALKO|BALLOU|BARBER|BARNSDALL|BARON|BARTLESVILLE|BATIEST|BATTIEST|BEARDEN|BEAVER|BEE|BEGGS|BELFONTE|BELL|BENNINGTON|BENTLEY|BERNICE|BESSIE|BETHANY|BETHEL|BETHEL ACRES|BIG CABIN|BIG CEDAR|BILLINGS|BINGER|BISON|BIXBY|BLACKBURN|BLACKGUM|BLACKWELL|BLAIR|BLAKO|BLANCAHRD|BLANCHARD|BLANCO|BLUE|BLUEJACKET|BOISE CITY|BOKCHITO|BOKOSHE|BOLEY|BOSWELL|BOWLEGS|BOWRING|BOX|BOYNTON|BRADLEY|BRAGGS|BRAMAN|BRAY|BRECKENRIDGE|BRENT|BRIARTOWN|BRIDGE CREEK|BRIDGEPORT|BRIGGS|BRISTOW|BROKEN ARROW|BROKEN BOW|BROMIDE|BROOKEN|BROOKSVILLE|BRUSH CREEK|BRUSHY|BRYANT|BUFFALO|BUG TUSSLE|BULL HOLLOW|BUNCH|BURBANK|BURLINGTON|BURNEYVILLE|BURNS FLAT|BUSHYHEAD|BUTCHER PEN|BUTLER|BYARS|BYNG|BYRON|CACHE|CADDO|CALERA|CALHOUN|CALUMET|CALVIN|CAMARGO|CAMERON|CANADIAN|CANADIAN SHORES|CANEY|CANEY RIDGE|CANTON|CANUTE|CAPRON|CARDIN|CARLISLE|CARLTON LANDING|CARMEN|CARNEGIE|CARNEY|CARRIER|CARROLLTON|CARTER|CARTERSVILLE|CARTWRIGHT|CASHION|CASTLE|CATOOSA|CAVE SPRING|CAYUGA|CEDAR CREST|CEDAR LAKE|CEDAR VALLEY|CELINA|CEMENT|CENTRAHOMA|CENTRAL HIGH|CENTRALIA|CHANCE|CHANDLER|CHATTANOOGA|CHECOTAH|CHECTAH|CHELSEA|CHEROKE|CHEROKEE|CHERRY TREE|CHESTER|CHEWEY|CHEYENNE|CHICKASHA|CHOCTAW|CHOUTEAU|CHRISTIE|CIMARRON CITY|CLAREMORE|CLARITA|CLARKSVILLE|CLAYTON|CLEARVIEW|CLEO SPRINGS|CLEORA|CLEVELAND|CLINTON|CLOUD CREEK|COALGATE|COFFEE CREEK|COFFEYVILLE|COLBERT|COLCORD|COLCORE|COLE|COLEGATE|COLEMAN|COLLEYVILLE|COLLINSVIILE|COLLINSVILLE|COLONY|COMANCHE|COMMACHE|COMMERCE|CONNERVILLE|COOKSON|COOPERTON|COPAN|COPELAND|CORDELL|CORN|CORNISH|COTTONWOOD|COUNCIL HILL|COVE|COVINGTON|COWETA|COWLINGTON|COYLE|CRANDALL|CRAWFORD|CRESCENT|CRESCENT SPRINGS|CROMWELL|CROWDER|CUMBERLAND|CUSHING|CUSTER CITY|CYRIL|DACOMA|DAISY|DALE|DALLAS|DANVILLE|DAVENPORT|DAVIDSON|DAVIS|DECATUR|DEER CREEK|DEER LICK|DEL CITY|DELAWARE|DENNIS|DENNISON|DEPEW|DEVOL|DEWAR|DEWEY|DIBBLE|DICKSON|DILL CITY|DISNEY|DIXON|DODGE|DOTYVILLE|DOUGHERTY|DOUGLAS|DOVER|DRIPPING SPRINGS|DROWNING CREEK|DRUMMOND|DRUMRIGHT|DRY CREEK|DUCHESS LANDING|DUKE|DUNCAN|DURANT|DURHAM|DUSTIN|DUVAL|DWIGHT MISSION|EAGLE CITY|EAGLETOWN|EAKLY|EARL|EARLSBORO|EAST DUKE|EDGEWATER PARK|EDMOND|EL RENO|ELDON|ELDORADO|ELGIN|ELK CITY|ELM GROVE|ELMER|ELMORE CITY|ELOHIM CITY|EMET|EMPIRE CITY|ENID|ENTERPRISE|ERICK|ERIN SPRINGS|ETOWAH|ETTA|EUCHA|EUFAULA|EVENING SHADE|FAIR OAKS|FAIRFAX|FAIRFIELD|FAIRFX|FAIRLAND|FAIRMONT|FAIRVIEW|FALLIS|FANSHAWE|FARGO|FAXON|FAY|FELT|FIARLAND|FINLEY|FITTSTOWN|FITZHUGH|FLETCHER|FLINT CREEK|FLUTE SPRINGS|FORAKER|FOREST PARK|FORGAN|FORNEY|FORT COBB|FORT COFFEE|FORT GIBSON|FORT SMITH|FORT SUPPLY|FORT SUPPY|FORT TOWNSON|FORT TOWSON|FOSS|FOSTER|FOX|FOYIL|FRANCIS|FREDERICK|FREEDOM|FRIENDSHIP|FT COBB|FT GIBSON|FT TOWSON|GAGE|GANS|GARBER|GARVIN|GATE|GEARY|GENE AUTRY|GENTRY|GERONIMO|GERTY|GIDEON|GLENCOE|GLENPOOL|GOLDEN|GOLDSBY|GOLTRY|GOODWELL|GORE|GOTEBO|GOULD|GOWEN|GRACEMONT|GRAINOLA|GRAND LAKE TOWNE|GRANDFIELD|GRANDVIEW|GRANITE|GRANT|GRAPEVINE|GRAYSON|GREASY|GREENFIELD|GREENVILLE|GREGORY|GROVE|GUTHRIE|GUYMON|HACKETT|HAILEYVILLE|HALLETT|HAMMON|HANNA|HANOBIA|HANSON|HARDESTY|HARRAH|HARTSHORNE|HASKELL|HASTINGS|HAWORTH|HAWTHORN|HAYWOOD|HAYWORTH|HEADRICK|HEALDTON|HEAVENER|HELENA|HENDRIX|HENNEPIN|HENNESSEY|HENRYETTA|HICKORY|HILLSDALE|HINTON|HITCHCOCK|HITCHITA|HJASKELL|HOBART|HOCHATOWN|HODGEN|HODGENS|HOFFMAN|HOGDEN|HOIBART|HOLDENVILLE|HOLLIS|HOLLISTER|HOLLY LAKE RANCH|HOMESTEAD|HOMINY|HONEY HILL|HONOBIA|HOOKER|HOOT OWL|HOPETON|HORNTOWN|HOUGH|HOWE|HOYT|HUGO|HULBERT|HULEBRT|HUNTER|HYDRO|IDABEL|IDABELL|IDABLE|INCORPORATED|INDIAHOMA|INDIANOLA|INGALLS|INOLA|IRON POST|IRVING|ISABELLA|IXL|JAY|JEFFERSON|JENKS|JENNINGS|JET|JOHNSON|JOHNSON PRAIRIE|JOHNSTON|JONES|JUSTICE|KANSAS|KASKELL|KATIE|KAW CITY|KEEFTON|KELLER|KELLYVILLE|KEMP|KENDRICK|KENEFIC|KENTON|KENWOOD|KEOTA|KETCHUM|KEYES|KEYS|KIEFER|KILDARE|KINGFISHER|KINGSTON|KINGTSON|KINSGTON|KINTA|KIOWA|KNOWLES|KONAWA|KREBS|KREMLIN|LAHOMA|LAKE ALUMA|LAKE ELLSWORTH ADDITION|LAKESIDE VILLAGE|LAMAR|LAMBERT|LAMONT|LANE|LANGLEY|LANGSTON|LATTA|LAVERNE|LAWRENCE CREEK|LAWTON|LAWTONKA ACRES|LE FLORE|LEACH|LEBANON|LEEDEY|LEEDY|LEFLORE|LEHIGH|LENAPAH|LEON|LEONARD|LEQUIRE|LEWISVILLE|LEXINGTON|LIBERTY|LIEXINGTON|LIMA|LIMESTONE|LINDSAY|LITTLE CITY|LITTLE PONDEROSA|LITTLE ROCK|LOCO|LOCUST GROVE|LONE CHIMNEY|LONE GROVE|LONE WOLF|LONG|LONGDALE|LONGTOWN|LOOKEBA|LOST CITY|LOTSEE|LOVELAND|LOVELL|LOWREY|LOYAL|LUCIEN|LUTHER|LYONS SWITCH|MACOMB|MADIILL|MADILL|MALLARD BAY|MANCHESTER|MANGUM|MANITOU|MANNFORD|MANNSVILLE|MARAMEC|MARBLE CITY|MARIETTA|MARLAND|MARLOW|MARSHALL|MARTHA|MASYVILLE|MAUD|MAY|MAYSVILLE|MAZIE|MCALESTER|MCBRIDE|MCCORD|MCCURTAIN|MCKINNEY|MCLOUD|MEAD|MEDFORD|MEDICINE PARK|MEEKER|MEHAN|MENA|MENO|MERIDIAN|MIAMI|MIDDLEBERG|MIDWEST CITY|MILBURN|MILFAY|MILL CREEK|MILLCREEK|MILLERTON|MINCO|MOFFETT|MONROE|MOODYS|MOORE|MOORELAND|MORONGO VALLEY|MORRIS|MORRISON|MOUINTAIN PARK|MOUNDS|MOUNTAIN PARK|MOUNTAIN VIEW|MOYERS|MULBERRY|MULDROW|MULE BARN|MULHALL|MURPHY|MUSE|MUSKGOEE|MUSKOGEE|MUSOGEE|MUSTANG|MUTUAL|NAHSOBA|NARCISSA|NARDIN|NASH|NASHOBA|NELAGONEY|NESCATUNGA|NEW ALLUWE|NEW CORDELL|NEW EUCHA|NEW PRUE|NEW WOODVILLE|NEWALLA|NEWCASTLE|NEWFIELD|NEWKIRK|NICHOLS HILLS|NICOMA PARK|NICUT|NINNEKAH|NOBLE|NORGE|NORMAN|NORTH CRAIG|NORTH ENID|NORTH MIAMI|NORTH RICHLAND HILLS|NORWOOD|NOTCHIETOWN|NOWATA|OAK GROVE|OAK HILL PINEY|OAKHURST|OAKLAND|OAKS|OAKWOOD|OCHELATA|OCTAVIA|OILTON|OKARACHE|OKARCHE|OKAY|OKEENE|OKEMAH|OKLAHOMA CITY|OKMULGEE|OKTAHA|OLD EUCHA|OLD GREEN|OLIVE|OLUSTEE|OMEGA|OOLOGAH|OPTIMA|ORLANDO|OSAGE|OSCAR|OUT|OWASSO|PADEN|PANAMA|PANOLA|PAOLI|PARADISE HILL|PARIS|PARK HILL|PARRIS|PAULS VALLEY|PAWHUSKA|PAWNEE|PEAVINE|PECKHAM|PEGGS|PENSACOLA|PEORIA|PERKINS|PERRY|PERSHING|PETTIT|PHILLIPS|PICHER|PICKENS|PICKETT|PIEDMONT|PIN OAK ACRES|PINEY|PINHOOK CORNER|PINK|PITTSBURG|PLANO|PLATTER|POCASSET|POCASSETD|POCASSETT|POCCASSET|POCOLA|PONCA CITY|PONCA CITY OK|PONCA CITY RURAL|POND CREEK|PONTOTOC|PORTER|PORUM|POTEAU|POTTSBORO|PRAGUE|PRESTON|PRIPLEY|PROCTOR|PROSPER|PRUE|PRYOR|PRYOR CREEK|PUMP BACK|PUMPKIN HOLLOW|PURCELL|PUTNAM|QUAPAW|QUAY|QUINLAN|QUINTON|RALSTON|RAMONA|RANDLETT|RATLIFF CITY|RATTAN|RAVIA|REAGAN|RED OAK|RED ROCK|REDBIRD|REDBIRD SMITH|REMY|RENFROW|RENTIESVILLE|RESIDENCE|REYDON|RILINGNG|RINGLING|RINGOLD|RINGWOOD|RIPLEY|RIVER BOTTOM|ROCK ISLAND|ROCKWAY BEACH|ROCKY|ROCKY FORD|ROCKY MOUNTAIN|ROCKY POINT|ROFF|ROLAND|ROOSEVELT|ROSE|ROSEDALE|ROSSTON|ROWLETT|ROYSE CITY|RUFE|RUSH SPIRNGS|RUSH SPRINGS|RYAN|S COFFEYVILLE|SALINA|SALLISAW|SAMS CORNER|SAND HILL|SAND POINT|SAND SPRINGS|SANTA ANA|SAPULPA|SASAKWA|SASAWA|SAVANNA|SAWYER|SAYRE|SCHULTER|SCIPIO|SEILING|SELMAN|SEMINOLE|SENTINEL|SEQUOYAH|SEWARD|SHADY GROVE|SHADY POINT|SHAMROCK|SHARON|SHATTUCK|SHAWNEE|SHERMAN|SHERWOOD|SHIDLER|SHORT|SILO|SIMMS|SKEDEE|SKIATOOK|SLAUGHTERVILLE|SLICK|SMITH VILLAGE|SMITHVILLE|SNAKE CREEK|SNOW|SNYDER|SOPER|SOUR JOHN|SOUTH COFFEYVILLE|SOUTHARD|SPARKS|SPARROWHAWK|SPAULDING|SPAVINAW|SPENCER|SPENCERVILLE|SPERRY|SPIRO|SPORTMANS SHORES|SPORTSMEN ACRES|SPRINGER|ST LOUIS|STAR|STEELY HOLLOW|STERLING|STIDHAM|STIGLER|STILLWATAER|STILLWATER|STILWELL|STINGLER|STONEWALL|STONEY POINT|STRANG|STRATFORD|STRINGTOWN|STRONG CITY|STROUD|STUART|SUGDEN|SULPHUR|SUMMERFIELD|SUMMIT|SUMNER|SUNRAY|SWEETWATER|SWINK|SYCAMORE|TAFT|TAGG FLATS|TAHLEQUAH|TALALA|TALIHINA|TALIHINO|TALOGA|TAMAHA|TATUMS|TAYLOR FERRY|TECUMSEH|TEMPLE|TENKILLER|TERESITA|TERLTON|TERRAL|TEXANNA|TEXHOMA|TEXOLA|THACKERVILLE|THE VILLAGE|THOMAS|TIAWAH|TIPTON|TISHOMINGO|TITANIC|TONKAWA|TONKAWA TRIBAL HOUSING|TOPPERS|TOWN OF HOCHATOWN|TRIBBEY|TRYON|TULLAHASSEE|TULSA|TUPELO|TURLEY|TURPIN|TUSHKA|TUSKAHOMA|TUTTLE|TWIN LAKES|TWIN OAKS|TYRON|TYRONE|UINCOROPRATED|UINCORPORATED|UKON|UNICORPORATED|UNINCOPORATED|UNINCOPRATED|UNINCOROPERATED|UNINCOROPORATED|UNINCOROPRATED|UNINCORPATED|UNINCORPOATED|UNINCORPORATD|UNINCORPORATE|UNINCORPORATES|UNINCORPORTATED|UNINCORPORTED|UNINCORPRATED|UNINCORPROATED|UNINNCORPORATED|UNION CITY|UTICA|VALIANT|VALIIANT|VALLEY BROOK|VALLEY PARK|VALLIANT|VANOSS|VELMA|VERA|VERDEN|VERDIGRIS|VERNON|VIAN|VICI|VINITA|VINITA EAST|VINITA WEST|VINSON|WAGONER|WAINWRIGHT|WAKITA|WALTER|WALTERS|WANETTE|WANN|WAPANUCKA|WARDVILLE|WARNER|WARR ACRES|WARWICK|WASHIGTON|WASHINGTON|WASHITA|WATONGA|WATOVA|WATSON|WATTS|WAUHILLAU|WAUKOMIS|WAURIKA|WAYBE|WAYNE|WAYNOKA|WEATHERFORD|WEBB CITY|WEBBERS FALLS|WELCH|WELEETKA|WELLING|WELLSTON|WELTY|WEST PEAVINE|WEST SILOAM SPRINGS|WESTPORT|WESTVILLE|WETUMKA|WEWOKA|WEYANDOTTE|WHIPPOORWILL|WHITE EAGLE|WHITE OAK|WHITE WATER|WHITEFIELD|WHITEHORN COVE|WHITESBORO|WICKLIFFE|WILBURTON|WILLOW|WILSON|WINCHESTER|WISTER|WOODALL|WOODLAWN PARK|WOODVILLE|WOODWARD|WOODWARD CO|WOOODWARD|WRIGHT CITY|WYANDOTTE|WYLIE|WYNEEWOOD|WYNNEWOOD|WYNONA|YALE|YEAGER|YUKON|ZEB|ZENA|ZION'.split('|'));
+const G_IGN=new Set(['EW','NS']); const DIR_AB={NORTH:'N',SOUTH:'S',EAST:'E',WEST:'W',NORTHEAST:'NE',NORTHWEST:'NW',SOUTHEAST:'SE',SOUTHWEST:'SW'};
+function oN(w){ return w.replace(/^(\d+)(ST|ND|RD|TH)$/,'$1'); }
+function dlev(a,b){ const m=a.length,n=b.length,d=[]; for(let i=0;i<=m;i++){ d[i]=[i]; } for(let j=0;j<=n;j++) d[0][j]=j;
+  for(let i=1;i<=m;i++) for(let j=1;j<=n;j++){ const c=a[i-1]===b[j-1]?0:1; d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+c); if(i>1&&j>1&&a[i-1]===b[j-2]&&a[i-2]===b[j-1]) d[i][j]=Math.min(d[i][j],d[i-2][j-2]+1); } return d[m][n]; }
+function tokEq(a,b,fz){ if(a===b) return true; if(!fz||/\d/.test(a)||/\d/.test(b)||Math.min(a.length,b.length)<4) return false; return dlev(a,b)<=(a.length>=7?2:1); }
 function gTok(s){ // uppercase tokens with common abbreviations expanded
   let t=(s||'').toUpperCase().replace(/\bOK[- ](?=\d)/g,'STATE HIGHWAY ').replace(/\bSH[- ]?(?=\d)/g,'STATE HIGHWAY ').replace(/\bU\.?S\.?[- ](?=\d)/g,'US HIGHWAY ')
     .replace(/\bC\.?R\.?[- ]?(?=\d)/g,'COUNTY ROAD ').replace(/\bC\.?S\.?[- ]?(?=\d)/g,'COUNTY STREET ').replace(/[.,#]/g,' ').replace(/[^A-Z0-9 \-]/g,' ').replace(/-/g,' ');
@@ -329,7 +338,9 @@ function gTok(s){ // uppercase tokens with common abbreviations expanded
 function parseAddr(term){
   let t=term.trim().replace(/\s+/g,' ');
   const P={raw:t, num:null, city:null, zip:null, state:null, street:null};
-  let m=t.match(/[\s,]+(\d{5})(?:-\d{4})?\s*$/); if(m){ P.zip=m[1]; t=t.slice(0,m.index); }
+  const um=t.match(/\s*,?\s*(?:#\s*|\b(?:apt|apartment|unit|ste|suite|lot|bldg|building|trlr|trailer|spc|space|rm|room)\b\.?\s*#?\s*)([A-Za-z]?\d+[A-Za-z]?|[A-Za-z])\b(?=\s*,|\s*$|\s+[A-Za-z])/i);
+  if(um&&um.index>2){ P.unit=um[1]; t=(t.slice(0,um.index)+t.slice(um.index+um[0].length)).replace(/\s+/g,' ').trim(); }
+  let m=t.match(/[\s,]+(\d{5})(?:-?\d{4})?\s*$/); if(m){ P.zip=m[1]; t=t.slice(0,m.index); }
   m=t.match(/[\s,]+(oklahoma|okla\.?|[A-Za-z]{2})\s*$/i);
   if(m){ const s=m[1].toUpperCase().replace('.',''); if(s==='OKLAHOMA'||s==='OKLA') P.state='OK'; else if(US_ST.has(s)&&!(G_TYPES[s]&&!/,/.test(t.slice(m.index,m.index+2)))) P.state=s; if(P.state) t=t.slice(0,m.index); }
   if(!P.zip){ m=t.match(/[\s,]+(\d{5})\s*$/); if(m){ P.zip=m[1]; t=t.slice(0,m.index); } }
@@ -343,20 +354,33 @@ function parseAddr(term){
     if(k>0 && k<toks.length-1 && /^\d/.test(toks[k+1])) k++;
     if(k>0 && k<toks.length-1 && !/^\d/.test(toks[k+1])){ const rest=toks.slice(k+1); if(G_DIRS[rest[0]]&&rest.length>1){ k++; } city=toks.slice(k+1).join(' '); toks=toks.slice(0,k+1); street=toks.join(' '); }
   }
+  if(!city && P.num){ // "316 S Lee Turpin" -> trailing Oklahoma town name
+    for(const n of [3,2,1]){ if(toks.length-n<1) continue; const c=toks.slice(-n).join(' '), rest=toks.slice(0,-n); if(OK_TOWNS.has(c)&&rest.some(w=>G_DIRS[w]!==w)){ city=c; toks=rest; street=rest.join(' '); break; } } }
   P.city=city?city.toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim()||null:null;
   if(P.num){ // directionals / type / core name tokens
     let a=0,b=toks.length; if(toks.length>1&&G_DIRS[toks[0]]&&G_DIRS[toks[0]]===toks[0]) { P.predir=toks[0]; a=1; }
     if(b-a>1&&G_DIRS[toks[b-1]]) { P.sufdir=toks[b-1]; b--; }
     if(b-a>1&&G_TYPEWORDS.has(toks[b-1])) { P.type=toks[b-1]; b--; }
     P.core=toks.slice(a,b); if(!P.core.length) P.core=toks.slice();
+    if(P.predir&&!P.type&&P.core.length===1&&G_TYPEWORDS.has(P.core[0])){ P.type=P.core[0]; P.core=[P.predir]; P.predir=null; } // "309 E St": the street is named E
     const dist=P.core.filter(w=>!G_GENERIC.has(w)&&!G_DIRS[w]); P.key=(dist.sort((x,y)=>y.length-x.length)[0]||P.core[P.core.length-1]||'').replace(/[^A-Z0-9]/g,'');
+    if(DIR_AB[P.key]) P.key=DIR_AB[P.key]; P.likeKey=oN(P.key);
   }
   P.street=street; return P;
 }
 function normTerm(term){ const P=parseAddr(term); return [P.num, ...gTok(P.street), P.city, P.zip].filter(Boolean).join(' '); }
 function cityHit(P,names){ if(!P.city) return undefined; const c=P.city; const ns=names.filter(Boolean).map(s=>String(s).toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim()).filter(s=>s&&s!=='UNINCORPORATED');
   if(!ns.length) return undefined; return ns.some(n=>n===c||n.startsWith(c+' ')||c.startsWith(n+' ')||n.replace(/ COUNTY| CO$/,'')===c||(c.length>=3&&n.startsWith(c))); }
-function coreSim(P,recToks){ const want=P.core.filter(w=>!G_DIRS[w]), have=new Set(recToks); if(!want.length) return 0; const hit=want.filter(w=>have.has(w)).length; const sig=want.filter(w=>!G_GENERIC.has(w)); if(sig.length&&!sig.every(w=>have.has(w))) return hit/want.length*0.4; return hit/Math.max(want.length,recToks.filter(w=>!G_DIRS[w]&&!G_TYPEWORDS.has(w)).length||1); }
+function coreSim(P,recToks,fz){ // how well a record's street tokens match the typed street (0..1); fz = tolerate small typos
+  const clean=a=>a.map(oN).filter(w=>G_DIRS[w]!==w&&!G_IGN.has(w));
+  let want=clean(P.core), have=clean(recToks);
+  if(!want.length){ want=P.core.map(oN); have=recToks.map(oN).filter(w=>!G_TYPEWORDS.has(w)); if(have.length>want.length) have=have.slice(have.length-want.length); }
+  if(!want.length) return 0; const has=w=>have.some(h=>tokEq(w,h,fz));
+  const cls=a=>['US','STATE','COUNTY','INTERSTATE'].filter(x=>a.includes(x)); const cw=cls(want), ch=cls(have); const clsBad=cw.length&&ch.length&&!cw.some(x=>ch.includes(x));
+  const sig=want.filter(w=>!G_GENERIC.has(w)&&!G_TYPEWORDS.has(w)); let r;
+  if(sig.length){ if(!sig.every(has)) return want.filter(has).length/want.length*0.4; const rs=have.filter(w=>!G_GENERIC.has(w)&&!G_TYPEWORDS.has(w)); r=sig.length/Math.max(sig.length,rs.length||1); }
+  else r=want.filter(has).length/Math.max(want.length,have.filter(w=>!G_TYPEWORDS.has(w)).length||1);
+  return clsBad?r*0.5:r; }
 function titleCase(s){ return (s||'').toLowerCase().replace(/\b([a-z])/g,c=>c.toUpperCase()).replace(/\b(Ok|Nw|Ne|Sw|Se|Us)\b/g,x=>x.toUpperCase()).replace(/(\d)(St|Nd|Rd|Th)\b/g,(a,d,s)=>d+s.toLowerCase()); }
 function withTimeout(p,ms){ return Promise.race([p, new Promise(ok=>setTimeout(()=>ok(null),ms))]); }
 // ---- provider 1: Oklahoma NG911 address points (rooftop / structure points from county 911 offices) ----
@@ -366,16 +390,20 @@ async function ngQuery(where,n){ const u=NG911_URL+'?'+new URLSearchParams({wher
 function ngStreetToks(a){ return gTok([a.predir,a.pretype,a.street,a.streettype,a.sufdir].filter(Boolean).join(' ')); }
 function ngLabel(a,num){ const st=[num??a.address,a.predir,a.pretype,a.street,a.streettype,a.sufdir].filter(x=>x!=null&&x!=='').join(' ');
   const town=(a.postcomm&&a.postcomm!=='N/A'?a.postcomm:null)||(a.city&&a.city!=='UNINCORPORATED'?a.city:null)||a.county||''; return titleCase(st)+', '+titleCase(town)+', OK'+(a.zipcode&&a.zipcode.trim()?' '+a.zipcode.trim():''); }
-function ngJudge(P,a){ const toks=ngStreetToks(a); const rp=G_DIRS[(a.predir||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) return null;
-  const sim=coreSim(P,toks); if(sim<0.5) return null; return {sim, cityOk:cityHit(P,[a.city,a.postcomm,a.msagcomm]), zip:(a.zipcode||'').trim()||null, typeOk:(()=>{ const ty=(a.streettype||'').trim().toUpperCase(); return !P.type||!ty||(G_TYPES[ty]||ty)===P.type; })()}; }
+function ngJudge(P,a,fz){ const toks=ngStreetToks(a); const rp=G_DIRS[(a.predir||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) return null;
+  const sim=coreSim(P,toks,fz); if(sim<0.5) return null; return {sim, cityOk:cityHit(P,[a.city,a.postcomm,a.msagcomm]), zip:(a.zipcode||'').trim()||null, typeOk:(()=>{ const ty=(a.streettype||'').trim().toUpperCase(); return !P.type||!ty||(G_TYPES[ty]||ty)===P.type; })()}; }
 async function ng911Geo(P){
   if(!P.num||!P.key) return [];
-  const like=`street LIKE '%${P.key}%'`; const out=[];
+  const like=`street LIKE '%${P.likeKey}%'`; const out=[];
   const cf=[]; if(P.city){ const c=P.city.replace(/[^A-Z ]/g,''); cf.push(`postcomm='${c}'`,`city='${c}'`,`msagcomm='${c}'`); } if(P.zip) cf.push(`zipcode='${P.zip}'`);
   let recs=cf.length?await ngQuery(`address=${+P.num} AND ${like} AND (${cf.join(' OR ')})`,25):[];
   if(!recs.length) recs=await ngQuery(`address=${+P.num} AND ${like}`,50);
   for(const a of recs){ const j=ngJudge(P,a); if(!j) continue; out.push({lat:a.lat,lon:a.lon,label:ngLabel(a),quality:'exact',src:'OK 911 address point',cityOk:j.cityOk,zip:j.zip,sim:j.sim+(j.typeOk?0:-0.2),id:'ng'+a.lat.toFixed(5)+a.lon.toFixed(5)}); }
   if(out.some(c=>c.cityOk!==false)) return out;
+  if(/^[A-Z]{4,}$/.test(P.likeKey)){ // typo tolerance: same house number in the typed town (or same first letter), fuzzy street-name match
+    const fw=cf.length?`address=${+P.num} AND (${cf.join(' OR ')})`:`address=${+P.num} AND street LIKE '${P.likeKey[0]}%'`;
+    for(const a of await ngQuery(fw,300)){ const j=ngJudge(P,a,true); if(!j||out.some(o=>o.id==='ng'+a.lat.toFixed(5)+a.lon.toFixed(5))) continue; out.push({lat:a.lat,lon:a.lon,label:ngLabel(a),quality:'exact',src:'OK 911 address point',cityOk:j.cityOk,zip:j.zip,sim:j.sim-0.1,fuzzy:true,id:'ng'+a.lat.toFixed(5)+a.lon.toFixed(5)}); }
+    if(out.some(c=>c.cityOk!==false)) return out; }
   // no exact point: estimate from neighbouring 911 address points on the same street (same side of the road preferred)
   const n=+P.num, span=Math.max(300,Math.round(n*0.1));
   const nb=(await ngQuery(`${like} AND address>=${n-span} AND address<=${n+span}`,400)).map(a=>({a,j:ngJudge(P,a)})).filter(x=>x.j&&x.j.cityOk!==false);
@@ -391,6 +419,49 @@ async function ng911Geo(P){
   }
   return out;
 }
+// ---- provider 1b: local rooftop sources (county / city GIS, public ArcGIS layers, no keys) ----
+const ngLike=(c,flds)=>'('+flds.map(f=>`${f}='${c}'`).join(' OR ')+')';
+function ngRec(a,F){ const st=[a[F.pd],a[F.pt],a[F.st],a[F.ty],a[F.sd]].map(x=>(x||'').trim()).filter(Boolean); return {num:a[F.n],pd:a[F.pd],toks:gTok(st.join(' ')),st,towns:F.towns.map(f=>a[f]),town:F.towns.map(f=>a[f]).find(x=>x&&x.trim()&&!/^(N\/A|UNINCORPORATED)$/i.test(x.trim())),zip:F.zip&&a[F.zip]}; }
+function splitLoc(num,str,city){ let t=(str||'').toUpperCase().replace(/\s+/g,' ').trim(); const c=(city||'').toUpperCase().trim(); if(c&&t.endsWith(' '+c)) t=t.slice(0,-c.length-1);
+  t=t.replace(/^\d+[A-Z]?\s+/,'').replace(/\s+(#|UNIT|STE|SUITE|APT|BLDG|LOT)\b.*$/,''); const toks=gTok(t); return {num, pd:G_DIRS[toks[0]]===toks[0]&&toks.length>1?toks[0]:null, toks, st:[t], towns:[city], town:city}; }
+const LOCAL_SRC=[
+  {src:'911 address point (INCOG: Tulsa, Rogers, Wagoner, Creek, Osage)',url:'https://map11.incog.org/arcgis11wa/rest/services/Address_Points_V3/FeatureServer/2',nf:'AddNumber',sf:'Street',bonus:10,
+   of:'AddNumber,PreDir,PreType,Street,StreetType,SufDir,PostComm,City,MSAGComm,Zipcode',rec:a=>ngRec(a,{n:'AddNumber',pd:'PreDir',pt:'PreType',st:'Street',ty:'StreetType',sd:'SufDir',towns:['PostComm','City','MSAGComm'],zip:'Zipcode'}),
+   cf:c=>ngLike(c,['PostComm','City','MSAGComm'])},
+  {src:'911 address point (Ardmore / Carter County)',url:'https://services5.arcgis.com/oaeokxd6oSFhzdMk/arcgis/rest/services/ArdGIS_WebDev/FeatureServer/0',nf:'Address',sf:'Street',bonus:10,
+   of:'Address,PreDir,PreType,Street,StreetType,SufDir,City,PostComm,MSAGComm,ZIPCODE',rec:a=>ngRec(a,{n:'Address',pd:'PreDir',pt:'PreType',st:'Street',ty:'StreetType',sd:'SufDir',towns:['PostComm','City','MSAGComm'],zip:'ZIPCODE'}),
+   cf:c=>ngLike(c,['PostComm','City','MSAGComm'])},
+  {src:'Guymon city address point',url:'https://services5.arcgis.com/qgZd4KwlPiONUbpc/arcgis/rest/services/EnerGov/FeatureServer/0',nf:'STRUCTURE_',sf:'COMP_STR_N',bonus:6,
+   of:'STRUCTURE_,COMP_STR_N,E911_COMM',rec:a=>splitLoc(a.STRUCTURE_,a.COMP_STR_N,a.E911_COMM),cf:c=>`E911_COMM='${c}'`},
+  {src:'Bartlesville city parcel',url:'https://services5.arcgis.com/HfXXKm7Xz2vk801w/arcgis/rest/services/cob_parcels/FeatureServer/0',nf:'PROP_NUM',sf:'PROP_STR',bonus:4,nogeom:true,
+   of:'PROP_NUM,PROP_DIR,PROP_STR,PROP_STYPE,LOCCITY,latitudeY,longitudX',ll:a=>[+a.latitudeY,+a.longitudX],
+   rec:a=>Object.assign(splitLoc(a.PROP_NUM,[a.PROP_DIR,a.PROP_STR,(a.PROP_STR||'').toUpperCase().endsWith((a.PROP_STYPE||'#').toUpperCase())?'':a.PROP_STYPE].filter(Boolean).join(' '),a.LOCCITY||'BARTLESVILLE'),{pd:a.PROP_DIR}),cf:c=>`LOCCITY='${c}'`},
+  {src:'Oklahoma County assessor parcel',url:'https://services8.arcgis.com/euhkr1dAJeQBIjV0/arcgis/rest/services/TaxParcelsPublics_view/FeatureServer/0',bonus:4,centroid:true,
+   of:'location,locationcity,zipcode',where:P=>`location LIKE '${+P.num} %${P.likeKey}%'`,fzWhere:(P,c)=>`location LIKE '${+P.num} %' AND locationcity='${c}'`,
+   rec:a=>{ const m=(a.location||'').match(/^(\d+)/); const r=splitLoc(m?+m[1]:null,a.location,a.locationcity); r.zip=a.zipcode; return r; }},
+  {src:'Canadian County assessor parcel',url:'https://services2.arcgis.com/0NjdXxmJp53hZWPd/arcgis/rest/services/ParcelDataService_2_view/FeatureServer/3',bonus:4,centroid:true,
+   of:'situs,situs_city,situs_zip',where:P=>`situs LIKE '${+P.num} %${P.likeKey}%'`,fzWhere:(P,c)=>`situs LIKE '${+P.num} %' AND situs_city='${c}'`,
+   rec:a=>{ const m=(a.situs||'').match(/^(\d+)/); const r=splitLoc(m?+m[1]:null,a.situs,a.situs_city); r.zip=a.situs_zip; if(/^UNINCORPORATED$/i.test(a.situs_city||'')){ r.town=null; } return r; }},
+  {src:'911 address point (Canadian County)',url:'https://services2.arcgis.com/0NjdXxmJp53hZWPd/arcgis/rest/services/911_Data_External_View/FeatureServer/0',nf:'address',sf:'street',bonus:10,
+   of:'address,predir,pretype,street,streettype,sufdir,city,postcomm,zipcode',rec:a=>ngRec(a,{n:'address',pd:'predir',pt:'pretype',st:'street',ty:'streettype',sd:'sufdir',towns:['postcomm','city'],zip:'zipcode'}),
+   cf:c=>ngLike(c,['postcomm','city'])},
+  {src:'City of Norman address point',url:'https://services.arcgis.com/rt1leD4Hj3sLGHNL/arcgis/rest/services/Address_Points/FeatureServer/1',nf:'Address',sf:'Street',bonus:10,
+   of:'Address,PreDir,PreType,Street,StreetType,SufDir,City,PostComm,Zipcode',rec:a=>ngRec(a,{n:'Address',pd:'PreDir',pt:'PreType',st:'Street',ty:'StreetType',sd:'SufDir',towns:['City','PostComm'],zip:'Zipcode'}),
+   cf:c=>ngLike(c,['City','PostComm'])}
+];
+async function arcRecs(L,where,n){ const p={where,outFields:L.of,returnGeometry:(L.nogeom||L.centroid)?'false':'true',outSR:'4326',resultRecordCount:String(n),f:'json'}; if(L.centroid) p.returnCentroid='true';
+  const r=await fetch(L.url+'/query?'+new URLSearchParams(p)); const j=await r.json(); if(j.error) throw new Error(j.error.message);
+  return (j.features||[]).map(f=>{ const g=L.centroid?f.centroid:f.geometry; const ll=L.ll?L.ll(f.attributes):(g?[g.y,g.x]:null); if(!ll||!inOK(ll[0],ll[1])) return null; return Object.assign({lat:ll[0],lon:ll[1]},L.rec(f.attributes)); }).filter(Boolean); }
+async function localGeo(L,P){
+  if(!P.num||!P.likeKey) return [];
+  const c=P.city&&P.city.replace(/[^A-Z ]/g,''), out=[], seen=new Set();
+  const add=(recs,fz)=>{ for(const a of recs){ if(+a.num!==+P.num) continue; const rp=G_DIRS[(a.pd||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) continue;
+      const sim=coreSim(P,a.toks,fz); if(sim<0.5) continue; const id=a.lat.toFixed(5)+a.lon.toFixed(5); if(seen.has(id)) continue; seen.add(id);
+      const z=(a.zip||'').trim(); const lbl=titleCase([P.num,...a.st].join(' '))+(a.town?', '+titleCase(a.town):'')+', OK'+(z&&z!=='00000'?' '+z:'');
+      out.push({lat:a.lat,lon:a.lon,label:lbl,quality:'exact',src:L.src,bonus:L.bonus,cityOk:cityHit(P,a.towns),zip:z&&z!=='00000'?z:null,sim:sim-(fz?0.1:0),fuzzy:fz}); } };
+  add(await arcRecs(L,L.where?L.where(P):`${L.nf}=${+P.num} AND ${L.sf} LIKE '%${P.likeKey}%'`,50),false);
+  if(!out.some(o=>o.cityOk!==false)&&c&&/^[A-Z]{4,}$/.test(P.likeKey)) add(await arcRecs(L,L.fzWhere?L.fzWhere(P,c):`${L.nf}=${+P.num} AND ${L.cf(c)}`,300),true);
+  return out; }
 // ---- provider 2: US Census (street-range interpolation) ----
 function jsonp(url){ return new Promise((ok,no)=>{ const cb='cb'+Math.random().toString(36).slice(2); const sc=document.createElement('script');
   const done=()=>{ clearTimeout(t); delete window[cb]; sc.remove(); }; const t=setTimeout(()=>{done(); no(new Error('timeout'));},12000);
@@ -404,7 +475,7 @@ async function censusGeo(P){
   return m.filter(x=>x.addressComponents&&x.addressComponents.state==='OK'&&inOK(x.coordinates.y,x.coordinates.x)).map(x=>{ const c=x.addressComponents;
     const toks=gTok([c.preDirection,c.preType,c.streetName,c.suffixType,c.suffixDirection].join(' '));
     const rp=G_DIRS[c.preDirection]; const dirBad=P.predir&&rp&&rp!==P.predir;
-    return {lat:x.coordinates.y,lon:x.coordinates.x,label:titleCase(x.matchedAddress.replace(/, OK, /,', OK ')),quality:dirBad?'street':'interp',src:'US Census (estimated along the street block)',cityOk:cityHit(P,[c.city]),zip:c.zip||null,sim:coreSim(P,toks)}; });
+    return {lat:x.coordinates.y,lon:x.coordinates.x,label:titleCase(x.matchedAddress.replace(/, OK, /,', OK ')),quality:dirBad?'street':'interp',src:'US Census (estimated along the street block)',cityOk:cityHit(P,[c.city]),zip:c.zip||null,sim:coreSim(P,toks,true)}; });
 }
 // ---- provider 3: OpenStreetMap Nominatim (max 1 request/second) ----
 let nomLast=0; async function nomThrottle(){ const w=nomLast+1100-Date.now(); nomLast=Math.max(Date.now(),nomLast+1100); if(w>0) await new Promise(r=>setTimeout(r,w)); }
@@ -412,7 +483,7 @@ async function nomFetch(params){ await nomThrottle(); const u='https://nominatim
   const r=await fetch(u,{headers:{'Accept':'application/json'}}); return await r.json(); }
 function nomCand(P,x){ const a=x.address||{}; const lat=+x.lat, lon=+x.lon; if(a.state!=='Oklahoma'||!inOK(lat,lon)) return null;
   const hn=(a.house_number||'').split(/[;,\- ]/)[0]; let q;
-  const toks=gTok([a.road].join(' ')); const nsim=P.num?coreSim(P,toks):0.8;
+  const toks=gTok([a.road].join(' ')); const nsim=P.num?coreSim(P,toks,true):0.8;
   if(P.num){ if(hn&&hn===P.num&&nsim>=0.5) q='exact'; else if(hn&&hn===P.num) return null; else if(hn) return null; else if(x.category==='highway'||x.addresstype==='road') q='street'; else if(/city|town|village|hamlet|municipality|county|postcode|suburb|neighbourhood/.test(x.addresstype||x.type)) q='town'; else q='street'; }
   else q='place';
   return {lat,lon,label:x.display_name.replace(/, United States$/,''),quality:q,src:'OpenStreetMap',cityOk:cityHit(P,[a.city,a.town,a.village,a.hamlet,a.municipality,a.suburb]),zip:a.postcode||null,sim:nsim}; }
@@ -427,10 +498,10 @@ async function nominatimGeo(P){
 async function photonRaw(q,extra){ const u=`https://photon.komoot.io/api/?limit=6&lang=en&lat=${OK_CENTER[0]}&lon=${OK_CENTER[1]}&bbox=${OK_BB.w},${OK_BB.s},${OK_BB.e},${OK_BB.n}${extra||''}&q=`+encodeURIComponent(q);
   const r=await fetch(u); const j=await r.json(); return (j.features||[]).filter(f=>f.properties.countrycode==='US'&&/^(Oklahoma|OK)$/.test(f.properties.state||'')&&inOK(f.geometry.coordinates[1],f.geometry.coordinates[0])); }
 function photonLabel(p){ const a=p.properties; const l1=[a.housenumber, a.street||a.name].filter(Boolean).join(' ') || a.name || ''; const l2=[a.city||a.town||a.village||a.district||a.county, 'OK', a.postcode].filter(Boolean).join(', '); return {l1, l2}; }
-function photonCand(P,f){ const a=f.properties; const {l1,l2}=photonLabel(f); let q; const psim=P.num?coreSim(P,gTok(a.street||a.name||'')):0.8;
+function photonCand(P,f){ const a=f.properties; const {l1,l2}=photonLabel(f); let q; const psim=P.num?coreSim(P,gTok(a.street||a.name||''),true):0.8;
   if(P.num){ if(a.housenumber&&a.housenumber.split(/[;,\- ]/)[0]===P.num&&psim>=0.5) q='exact'; else if(a.housenumber) return null; else if(a.type==='street'||a.osm_key==='highway') q='street'; else if(/city|town|village|district|locality|county/.test(a.type||'')||a.osm_key==='place') q='town'; else return null; }
   else q='place';
-  return {lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],label:l1+(l2?', '+l2:''),l1,l2,quality:q,src:'OpenStreetMap (Photon)',cityOk:cityHit(P,[a.city,a.town,a.village,a.district,a.locality,a.name]),zip:a.postcode||null,sim:psim}; }
+  return {lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],label:l1+(l2?', '+l2:''),l1,l2,quality:q,src:'OpenStreetMap (Photon)',cityOk:cityHit(P,[a.city,a.town,a.village,a.district,a.locality,a.name]),zip:a.postcode||null,sim:psim,ext:a.extent||null}; }
 async function photonGeo(P){ const out=(await photonRaw(okTerm(P))).map(f=>photonCand(P,f)).filter(Boolean);
   if(P.city&&P.num){ (await photonRaw(P.city+', Oklahoma','&osm_tag=place')).forEach(f=>{ const c=photonCand(Object.assign({},P,{num:null}),f); if(c&&c.cityOk!==false){ c.quality='town'; c.label=c.label; out.push(c);} }); }
   return out; }
@@ -438,7 +509,7 @@ async function photonGeo(P){ const out=(await photonRaw(okTerm(P))).map(f=>photo
 async function suggest(term){
   const P=parseAddr(term); const jobs=[photonRaw(okTerm(P)).then(fs=>fs.map(f=>{ const c=photonCand(Object.assign({},P,{num:null}),f); const a=f.properties;
       const exact=!!(P.num&&a.housenumber&&a.housenumber.split(/[;,\- ]/)[0]===P.num); return Object.assign(c,{hasNum:!!a.housenumber,num:a.housenumber||null,quality:a.housenumber?(exact?'exact':'other'):c.quality}); })).catch(()=>[])];
-  if(P.num&&P.key&&P.key.length>=2) jobs.unshift((async()=>{ const w=`address=${+P.num} AND street LIKE '%${P.key}%'`;
+  if(P.num&&P.key&&P.key.length>=1) jobs.unshift((async()=>{ const w=`address=${+P.num} AND street LIKE '%${P.likeKey}%'`;
       const cf=P.city?` AND (postcomm LIKE '${P.city.replace(/[^A-Z ]/g,'')}%' OR city LIKE '${P.city.replace(/[^A-Z ]/g,'')}%' OR msagcomm LIKE '${P.city.replace(/[^A-Z ]/g,'')}%')`:'';
       let rs=cf?await ngQuery(w+cf,6):[]; if(!rs.length) rs=await ngQuery(w,12);
       rs=rs.filter(a=>{ const rp=G_DIRS[(a.predir||'').trim().toUpperCase()]; return !(P.predir&&rp&&rp!==P.predir); });
@@ -454,17 +525,23 @@ function saveFix(term,lat,lon,label){ try{ localStorage.setItem(FIX_PREFIX+normT
 function clearFix(term){ try{ localStorage.removeItem(FIX_PREFIX+normTerm(term)); }catch(e){} }
 // ---- combine + score ----
 function scoreCand(c,P){ let s={corrected:300,coords:300,exact:100,place:80,interp:70,street:35,town:10}[c.quality]||0;
-  if(c.cityOk===true) s+=20; else if(c.cityOk===false) s-=60;
+  if(c.cityOk===true) s+=20; else if(c.cityOk===false) s-=(P.zip&&c.zip&&c.zip.slice(0,5)===P.zip)?30:120; // a typed town that doesn't match is a strong sign of the wrong place
+  if(c.dirBad) s-=40; if(c.farTown) s-=80;
   if(P.zip&&c.zip) s+= c.zip.slice(0,5)===P.zip?10:-15;
   if(c.quality==='exact'||c.quality==='interp') s+=Math.max(-1,Math.min(1,c.sim||0))*25;
-  if(/911 address point/.test(c.src)) s+=10; return s; }
+  if(c.bonus) s+=c.bonus; else if(/911 address point/.test(c.src)) s+=10; return s; }
 async function geocode(term){
   const pc=parseCoords(term); if(pc) return Object.assign(coordPlace(pc.lat,pc.lon),{quality:'coords',cands:[]});
   const fix=getFix(term);
   if(fix) { const p={lat:fix.lat,lon:fix.lon,label:fix.label,baseLabel:fix.label,quality:'corrected',src:'pin you moved (saved on this device)',term}; p.cands=[p]; return p; }
   const P=parseAddr(term);
-  const provs=[ng911Geo,censusGeo,nominatimGeo,photonGeo].map(f=>withTimeout(f(P).catch(()=>[]),10000).then(r=>r||[]));
+  const provs=[ng911Geo,censusGeo,nominatimGeo,photonGeo,...LOCAL_SRC.map(L=>Object.assign(P=>localGeo(L,P),{local:1}))].map(f=>withTimeout(f(P).catch(()=>[]),f.local?6000:10000).then(r=>r||[])); // a slow county server can't hold up the search
   let all=(await Promise.all(provs)).flat().filter(c=>c&&inOK(c.lat,c.lon));
+  if(P.predir) all.forEach(c=>{ if(/OpenStreetMap|Census/.test(c.src)&&c.quality!=='town'){ const t=gTok(c.label.split(',').find(x=>/[A-Za-z]/.test(x))||'').filter(w=>!/^\d+$/.test(w)); if(G_DIRS[t[0]]===t[0]&&t.length>1&&t[0]!==P.predir) c.dirBad=true; } });
+  if(P.city){ const tw=all.filter(c=>c.quality==='town'&&c.cityOk===true), twn=tw.find(c=>c.ext)||tw[0]; if(twn) all.forEach(c=>{ const d=map.distance([c.lat,c.lon],[twn.lat,twn.lon]); if(c.quality!=='town'&&c.cityOk!==false&&d>30000) c.cityOk=false;
+    else if(c.cityOk===false&&(c.quality==='exact'||c.quality==='interp')&&d<15000) c.cityOk=undefined;
+    if(twn.ext&&/OpenStreetMap|Census/.test(c.src)&&c.quality!=='town'&&+P.num<5000&&P.type!=='ROAD'&&!/ (Rd|Road)/i.test(c.label)){ const [w,n,e,s]=twn.ext; const la=Math.min(Math.max(c.lat,Math.min(s,n)),Math.max(s,n)), lo=Math.min(Math.max(c.lon,Math.min(w,e)),Math.max(w,e));
+      if(map.distance([c.lat,c.lon],[la,lo])>5000) c.farTown=true; } }); } // town-style house number placed far outside the typed town: likely a wrong match // e.g. mailing town Ardmore, 911 community Dickson
   all.forEach(c=>c.score=scoreCand(c,P));
   if(!P.city&&!P.zip){ const ref=(typeof lastFix!=='undefined'&&lastFix)?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]; all.forEach(c=>c.score+=8*Math.max(0,1-map.distance(ref,[c.lat,c.lon])/200000)); } // no town typed: prefer matches near you / the map
   // agreement bonus: independent sources within 150 m of each other
