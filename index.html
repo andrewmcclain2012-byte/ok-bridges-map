@@ -65,6 +65,13 @@
   #banner.orange{background:#e65100;}
   #banner.yellow{background:#f9a825;color:#000;}
   #banner b{font-size:16px;}
+  .veh{background:#f1f3f4;border-radius:8px;padding:6px 8px;margin-top:8px;}
+  .veh input[type=number]{width:74px;padding:6px;border:1px solid #ccc;border-radius:6px;font-size:15px;}
+  .warnbox{background:#fce8e6;color:#a50e0e;border-radius:8px;padding:8px;margin-top:6px;font-weight:bold;}
+  .okbox{background:#e6f4ea;color:#0d652d;border-radius:8px;padding:8px;margin-top:6px;font-weight:bold;}
+  .list h5{margin:10px 0 2px;font-size:13px;}
+  .tag{display:inline-block;font-size:11px;font-weight:bold;border-radius:8px;padding:0 6px;margin-left:4px;}
+  .tag.bad{background:#d93025;color:#fff;} .tag.ok{background:#e6f4ea;color:#0d652d;} .tag.chk{background:#fef7e0;color:#7a4f01;}
   .gpsdot{width:16px;height:16px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.4),0 1px 4px rgba(0,0,0,.4);}
 </style>
 </head>
@@ -106,12 +113,18 @@
     <div class="row"><label><input type="radio" name="rfrom" value="gps" checked> From my GPS location</label> <label><input type="radio" name="rfrom" value="addr"> From an address</label></div>
     <div class="acwrap" id="fromWrap" style="display:none;margin-top:6px"><input type="text" id="fromIn" placeholder="Start address" autocomplete="off"><div class="ac" id="fromAc"></div></div>
     <div class="acwrap" style="margin-top:6px"><input type="text" id="toIn" placeholder="Destination address" autocomplete="off"><div class="ac" id="toAc"></div></div>
+    <div class="veh">
+      <div class="row"><b>Vehicle</b> <input type="number" id="vehTons" min="0" max="120" step="0.5" placeholder="tons" inputmode="decimal"> tons
+        <select id="vehType"><option value="0">Single-unit truck / bus</option><option value="1">Semi / truck-trailer</option><option value="2">Double trailer</option></select></div>
+      <div class="row"><label><input type="checkbox" id="avoidClosed" checked> Avoid closed bridges</label>
+        <label><input type="checkbox" id="avoidUnknown" checked> Avoid posted bridges with no tonnage on file</label></div>
+    </div>
     <div class="row"><button class="tbtn" id="routeGo">Get route</button><button class="tbtn sec" id="routeClear">Clear</button></div>
     <div class="msg" id="routeMsg"></div>
     <div class="list" id="routeList"></div>
   </div>
 </div>
-<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Geocoding &copy; OpenStreetMap/Nominatim &amp; Photon · Routing OSRM. Always obey the sign at the bridge.</div>
+<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
@@ -248,20 +261,56 @@ function photonLabel(p){ const a=p.properties; const l1=[a.housenumber, a.street
 async function suggest(term){
   const u=`https://photon.komoot.io/api/?limit=6&lang=en&lat=${OK_CENTER[0]}&lon=${OK_CENTER[1]}&bbox=-125,24,-66,50&q=`+encodeURIComponent(term);
   const r=await fetch(u); const j=await r.json();
-  return (j.features||[]).filter(f=>f.properties.countrycode==='US').map(f=>{ const {l1,l2}=photonLabel(f); return {lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], label:l1+(l2?', '+l2:''), l1, l2}; });
+  return (j.features||[]).filter(f=>f.properties.countrycode==='US').map(f=>{ const {l1,l2}=photonLabel(f); return {lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], label:l1+(l2?', '+l2:''), l1, l2, hasNum:!!f.properties.housenumber}; });
 }
+// Address lookup chain: US Census (best for house numbers, via JSONP) -> Nominatim structured -> Nominatim free-form -> Photon
+function jsonp(url){ return new Promise((ok,no)=>{ const cb='cb'+Math.random().toString(36).slice(2); const sc=document.createElement('script');
+  const done=()=>{ clearTimeout(t); delete window[cb]; sc.remove(); }; const t=setTimeout(()=>{done(); no(new Error('timeout'));},12000);
+  window[cb]=d=>{done(); ok(d);}; sc.onerror=()=>{done(); no(new Error('jsonp failed'));}; sc.src=url+'&format=jsonp&callback='+cb; document.head.appendChild(sc); }); }
+async function censusGeo(term){
+  const d=await jsonp('https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&address='+encodeURIComponent(term));
+  const m=d&&d.result&&d.result.addressMatches; if(!m||!m.length) return null;
+  return {lat:m[0].coordinates.y, lon:m[0].coordinates.x, label:m[0].matchedAddress, src:'US Census'};
+}
+async function nomFetch(params){ const u='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=3&countrycodes=us&'+params;
+  const r=await fetch(u,{headers:{'Accept':'application/json'}}); const j=await r.json(); return j.map(x=>({lat:+x.lat, lon:+x.lon, label:x.display_name, src:'OpenStreetMap', addr:x.address||{}})); }
+function cityOf(term){ if(!/^\s*\d+[A-Za-z]?\s+\S/.test(term)) return null; const p=term.split(',').map(x=>x.trim()).filter(Boolean); if(p.length<2) return null; return p[1].replace(/\s+[A-Za-z]{2}(\s+\d{5})?$/,'').toLowerCase(); }
+function cityMatches(g,city){ if(!city||!g.addr) return true; const a=g.addr; return [a.city,a.town,a.village,a.hamlet,a.municipality,a.suburb].filter(Boolean).some(v=>v.toLowerCase().includes(city)||city.includes(v.toLowerCase())); }
+function nomStructured(term){
+  const p=term.split(',').map(x=>x.trim()).filter(Boolean); if(p.length<2) return Promise.resolve(null);
+  const q={street:p[0], city:p[1]}; const last=p.slice(2).join(' ');
+  const z=last.match(/\b(\d{5})(-\d{4})?\b/); if(z) q.postalcode=z[1];
+  const st=last.replace(/\b\d{5}(-\d{4})?\b/,'').trim(); if(st) q.state=st;
+  if(!q.state){ const z2=p[1].match(/^(.*?)\s+([A-Za-z]{2})\s*(\d{5})?$/); if(z2){ q.city=z2[1]; q.state=z2[2]; if(z2[3]) q.postalcode=z2[3]; } }
+  return nomFetch(new URLSearchParams(q).toString());
+}
+function nomFree(term){ return nomFetch('viewbox=-103.1,37.1,-94.4,33.6&bounded=0&q='+encodeURIComponent(term)); }
+// Nominatim results must be in the city the user typed (avoids e.g. "Dewey" matching Dewey County); otherwise kept only as a last resort
+async function nomChecked(f,term){ const rs=await f(term); if(!rs||!rs.length) return null; const c=cityOf(term); const good=rs.find(g=>cityMatches(g,c)); return {good, weak:rs[0]}; }
+async function photonGeo(term){ const s=await suggest(term); if(!s.length) return null; const c=cityOf(term);
+  const good=s.find(g=>!c||(g.l2||'').toLowerCase().includes(c)); return {good:good&&Object.assign({src:'Photon'},good), weak:Object.assign({src:'Photon'},s[0])}; }
 async function geocode(term){
-  const u='https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&viewbox=-103.1,37.1,-94.4,33.6&bounded=0&q='+encodeURIComponent(term);
-  const r=await fetch(u,{headers:{'Accept':'application/json'}}); const j=await r.json();
-  if (j.length) return {lat:+j[0].lat, lon:+j[0].lon, label:j[0].display_name};
-  const s=await suggest(term); return s[0]||null;
+  const hasNum=/^\s*\d+[A-Za-z]?\s+\S/.test(term);
+  const nS=t=>nomChecked(nomStructured,t), nF=t=>nomChecked(nomFree,t);
+  const chain = hasNum ? [censusGeo, nS, nF, photonGeo] : [nF, censusGeo, photonGeo];
+  let weak=null;
+  for(const f of chain){ try{ const g=await f(term); if(!g) continue; if('good' in g || 'weak' in g){ if(g.good) return g.good; if(g.weak&&!weak) weak=g.weak; continue; } return g; }catch(e){ /* try next */ } }
+  // Street address not found in the typed city: fall back to that city's center, clearly labeled
+  const c=cityOf(term);
+  if(c){ try{ const p=term.split(',').map(x=>x.trim()); const rs=await nomFree(p.slice(1).join(', ')); const r={good:rs.find(g=>cityMatches(g,c)&&/city|town|village|hamlet|municipality/.test(g.label)||cityMatches(g,c)&&g.addr&&(g.addr.city||g.addr.town||g.addr.village))};
+    if(r.good){ r.good.approx=true; r.good.label='(street address not found; city center) '+r.good.label; return r.good; } }catch(e){} }
+  if(weak){ weak.approx=true; weak.label='(approximate match) '+weak.label; }
+  return weak;
 }
 // Attach autocomplete to an input; stores chosen place on input.place
 function autocomplete(inp, box, onPick){
   let timer, items=[], idx=-1, seq=0;
   const close=()=>{box.style.display='none'; idx=-1;};
   const render=()=>{ box.innerHTML=''; items.forEach((it,i)=>{ const d=document.createElement('div'); if(i===idx) d.className='sel'; d.innerHTML=`<b>${esc(it.l1)}</b><small>${esc(it.l2)}</small>`; d.onmousedown=(e)=>{e.preventDefault(); pick(it);}; box.appendChild(d); }); box.style.display=items.length?'block':'none'; };
-  const pick=(it)=>{ inp.value=it.label; inp.place=it; close(); onPick && onPick(it); };
+  const pick=(it)=>{ const typed=inp.value.trim(); const m=typed.match(/^\s*(\d+[A-Za-z]?)\s+/);
+    if(m && !it.hasNum){ inp.value=typed.split(',')[0]+(it.l2?', '+it.l2:''); inp.place=null; } // keep the house number; full lookup on run
+    else { inp.value=it.label; inp.place=it; }
+    close(); onPick && onPick(it); };
   inp.addEventListener('input',()=>{ inp.place=null; clearTimeout(timer); const v=inp.value.trim(); if(v.length<3){close();return;} const my=++seq;
     timer=setTimeout(async()=>{ try{ const s=await suggest(v); if(my!==seq) return; items=s; idx=-1; render(); }catch(e){ close(); } }, 350); });
   inp.addEventListener('keydown',e=>{
@@ -288,7 +337,7 @@ async function runAddr(){
   map.fitBounds(L.latLng(p.lat,p.lon).toBounds(rad*2),{padding:[20,20]});
   const near=BRIDGES.map(b=>({b,d:map.distance([p.lat,p.lon],[b.lat,b.lon])})).filter(x=>x.d<=rad).sort((a,b)=>a.d-b.d);
   const c={closed:0,heavy:0,posted:0}; near.forEach(x=>c[x.b.sev]++);
-  addrMsg.textContent = near.length ? `${near.length} posted/closed bridge${near.length>1?'s':''} within ${addrRad.value} mi (${c.closed} closed, ${c.heavy} ≤10 t, ${c.posted} posted). Nearest first:` : `No posted or closed bridges within ${addrRad.value} mi of this address.`;
+  addrMsg.textContent = `Found: ${p.label}${p.src?' ('+p.src+')':''}. ` + (near.length ? `${near.length} posted/closed bridge${near.length>1?'s':''} within ${addrRad.value} mi (${c.closed} closed, ${c.heavy} ≤10 t, ${c.posted} posted). Nearest first:` : `No posted or closed bridges within ${addrRad.value} mi of this address.`);
   fillList(addrList, near.slice(0,200).map(({b,d})=>({b, html:bridgeRow(b,(d/MI).toFixed(1)+' mi')})));
 }
 autocomplete(addrIn, document.getElementById('addrAc'), ()=>runAddr());
@@ -357,36 +406,128 @@ function routeBridges(coords){ // coords: [[lat,lon],...]
   }
   return out.sort((a,b)=>a.along-b.along);
 }
+// ---- Weight-aware routing (v3): Valhalla (FOSSGIS public server, no key) with exclude_polygons; OSRM alternatives as fallback ----
+const CONFLICT_BUF=60;   // m: a bridge this close to the route line counts as "on the route"
+const EXCL_R=35;         // m: radius of the no-go polygon placed over each conflicting bridge
+const MAX_ITER=6;
+let lastRoute=null;
+function vehicle(){ const w=parseFloat(document.getElementById('vehTons').value); return {w:isFinite(w)&&w>0?w:null, type:+document.getElementById('vehType').value,
+  avoidClosed:document.getElementById('avoidClosed').checked, avoidUnknown:document.getElementById('avoidUnknown').checked}; }
+const VT=['single-unit truck / bus','semi / truck-trailer','double trailer'];
+function limitFor(b,type){ if(!b.tons) return null; const v=b.tons[type]; if(v!=null) return v; const o=b.tons.filter(t=>t!=null); return o.length?Math.min(...o):null; }
+// Why a bridge blocks this vehicle (or null if it doesn't)
+function conflictReason(b,V){
+  if(b.sev==='closed') return V.avoidClosed?'Closed':null;
+  if(V.w==null) return null;
+  const lim=limitFor(b,V.type);
+  if(lim==null) return V.avoidUnknown?'Posted, tonnage not on file':null;
+  return V.w>lim?`Limit ${lim} t for ${VT[V.type]} (you: ${V.w} t)`:null;
+}
+function decode6(str){ let i=0,lat=0,lon=0,out=[]; while(i<str.length){ let b,sh=0,r=0; do{b=str.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5;}while(b>=32); lat+=(r&1)?~(r>>1):(r>>1);
+  sh=0;r=0; do{b=str.charCodeAt(i++)-63; r|=(b&31)<<sh; sh+=5;}while(b>=32); lon+=(r&1)?~(r>>1):(r>>1); out.push([lat/1e6,lon/1e6]); } return out; }
+function octagon(b){ const kx=111320*Math.cos(b.lat*Math.PI/180), ky=110540, ring=[];
+  for(let k=0;k<=8;k++){ const a=(k%8)*Math.PI/4; ring.push([b.lon+EXCL_R*Math.cos(a)/kx, b.lat+EXCL_R*Math.sin(a)/ky]); } return ring; }
+async function valhalla(A,B,excl){
+  const body={locations:[{lat:A.lat,lon:A.lon},{lat:B.lat,lon:B.lon}], costing:'auto', units:'miles', alternates:2, directions_type:'none'};
+  if(excl.length) body.exclude_polygons=excl.map(octagon);
+  const r=await fetch('https://valhalla1.openstreetmap.de/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j=await r.json();
+  if(!j.trip){ const e=new Error(j.error||('HTTP '+r.status)); e.noRoute=true; throw e; }
+  const trips=[j.trip].concat((j.alternates||[]).map(a=>a.trip));
+  return trips.map(t=>({coords:t.legs.flatMap(l=>decode6(l.shape)), dist:t.summary.length*MI, time:t.summary.time, engine:'Valhalla'}));
+}
+async function osrm(A,B){
+  const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${A.lon},${A.lat};${B.lon},${B.lat}?overview=full&geometries=geojson&alternatives=3`); const j=await r.json();
+  if(!j.routes||!j.routes.length) throw new Error('No driving route found ('+(j.code||'error')+')');
+  return j.routes.map(rt=>({coords:rt.geometry.coordinates.map(c=>[c[1],c[0]]), dist:rt.distance, time:rt.duration, engine:'OSRM'}));
+}
+function analyze(rt,V){ const near=routeBridges(rt.coords); rt.near=near; rt.bad=near.filter(x=>x.d<=CONFLICT_BUF && conflictReason(x.b,V)); return rt; }
+// distance (m) from point to polyline, local projection
+function distToLine(pt,coords){ const kx=111320*Math.cos(pt[0]*Math.PI/180), ky=110540; let best=Infinity; const x=pt[1]*kx,y=pt[0]*ky;
+  for(let i=1;i<coords.length;i++){ const ax=coords[i-1][1]*kx, ay=coords[i-1][0]*ky, bx=coords[i][1]*kx, by=coords[i][0]*ky, dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy;
+    let t=L2?((x-ax)*dx+(y-ay)*dy)/L2:0; t=Math.max(0,Math.min(1,t)); best=Math.min(best,Math.hypot(x-(ax+t*dx),y-(ay+t*dy))); } return best; }
+// Waypoints for Google Maps: midpoints of the stretches where the safe route leaves the fastest route
+function detourWaypoints(safe,fast){
+  if(!fast||safe===fast) return [];
+  const step=Math.max(1,Math.floor(safe.coords.length/400)); const samp=[]; for(let i=0;i<safe.coords.length;i+=step) samp.push(safe.coords[i]);
+  const thin=[]; for(let i=0;i<fast.coords.length;i+=Math.max(1,Math.floor(fast.coords.length/1500))) thin.push(fast.coords[i]); thin.push(fast.coords[fast.coords.length-1]);
+  const off=samp.map(p=>distToLine(p,thin)>200);
+  const segs=[]; let st=-1; off.forEach((o,i)=>{ if(o&&st<0) st=i; if((!o||i===off.length-1)&&st>=0){ segs.push([st,o?i:i-1]); st=-1; } });
+  return segs.map(([a,b])=>samp[Math.floor((a+b)/2)]).slice(0,8);
+}
 async function runRoute(){
   routeMsg.className='msg'; routeList.innerHTML=''; routeMsg.textContent='Finding start…';
-  let A,B;
+  const V=vehicle(); let A,B;
   try{
     if(document.querySelector('input[name=rfrom]:checked').value==='gps'){ A=await getGpsOnce(); A.label='My location'; }
-    else { A=await resolve(fromIn); if(!A) throw new Error('Start address not found.'); }
+    else { A=await resolve(fromIn); if(!A) throw new Error('Start address not found. Add the city and state.'); }
     routeMsg.textContent='Finding destination…';
-    B=await resolve(toIn); if(!B) throw new Error('Destination address not found.');
+    B=await resolve(toIn); if(!B) throw new Error('Destination address not found. Add the city and state.');
   }catch(e){ routeMsg.className='msg err'; routeMsg.textContent=(e.message||'Could not get a location')+(e.code===1?' (location permission denied)':''); return; }
   routeMsg.textContent='Routing…';
-  let j;
-  try{ const r=await fetch(`https://router.project-osrm.org/route/v1/driving/${A.lon},${A.lat};${B.lon},${B.lat}?overview=full&geometries=geojson`); j=await r.json(); }
-  catch(e){ routeMsg.className='msg err'; routeMsg.textContent='Routing service unavailable. Try again shortly.'; return; }
-  if(!j.routes||!j.routes.length){ routeMsg.className='msg err'; routeMsg.textContent='No driving route found ('+(j.code||'error')+').'; return; }
-  const rt=j.routes[0], coords=rt.geometry.coordinates.map(c=>[c[1],c[0]]);
+  let fast=null, safe=null, excluded=new Map(), engine='Valhalla', noSafe=false, note='';
+  try{
+    let alts=(await valhalla(A,B,[])).map(r=>analyze(r,V)); fast=alts[0];
+    safe=alts.find(r=>!r.bad.length)||null;
+    for(let it=0; !safe && it<MAX_ITER; it++){
+      const cur=alts[0]; let added=0;
+      for(const x of alts.flatMap(r=>r.bad)) if(!excluded.has(x.b.id)){ excluded.set(x.b.id,x.b); added++; }
+      if(!added) break; // remaining conflicts were already excluded: route only passes near/under them
+      routeMsg.textContent=`Rerouting around ${excluded.size} bridge${excluded.size>1?'s':''}…`;
+      try{ alts=(await valhalla(A,B,[...excluded.values()])).map(r=>analyze(r,V)); }
+      catch(e){ if(e.noRoute){ noSafe=true; break; } throw e; }
+      safe=alts.find(r=>!r.bad.length)||null;
+      if(!safe){ const c=alts.find(r=>r.bad.every(x=>excluded.has(x.b.id))); if(c){ safe=c; } }
+    }
+    if(!safe && !noSafe) noSafe=true;
+  }catch(e){
+    // Valhalla unreachable: fall back to OSRM alternatives (cannot avoid specific bridges, only pick among alternatives)
+    engine='OSRM'; note='Detour server unavailable; picked the best of OSRM\'s alternative routes. ';
+    try{ const alts=(await osrm(A,B)).map(r=>analyze(r,V)); fast=alts[0]; safe=alts.find(r=>!r.bad.length)||null; if(!safe) noSafe=true; alts.forEach(r=>r.bad.forEach(x=>excluded.set(x.b.id,x.b))); }
+    catch(e2){ routeMsg.className='msg err'; routeMsg.textContent='Routing services unavailable. Try again shortly. ('+e2.message+')'; return; }
+  }
+  const shown = safe || fast;
   if(routeLayer) map.removeLayer(routeLayer);
-  const line=L.polyline(coords,{color:'#1a73e8',weight:6,opacity:.8});
-  routeLayer=L.layerGroup([L.polyline(coords,{color:'#fff',weight:10,opacity:.7}), line,
-    L.circleMarker([A.lat,A.lon],{radius:7,color:'#fff',weight:3,fillColor:'#0b8043',fillOpacity:1}).bindTooltip('Start'),
-    L.marker([B.lat,B.lon],{title:'Destination'}).bindPopup(`<b>${esc(B.label||'Destination')}</b>`)]).addTo(map);
-  map.fitBounds(line.getBounds(),{padding:[30,30]});
-  const hits=routeBridges(coords);
-  const g=`https://www.google.com/maps/dir/?api=1&origin=${A.lat},${A.lon}&destination=${B.lat},${B.lon}&travelmode=driving`;
-  routeMsg.innerHTML=`${(rt.distance/MI).toFixed(1)} mi · about ${Math.round(rt.duration/60)} min. `+
-    (hits.length?`<b>${hits.length} posted/closed bridge${hits.length>1?'s':''} within 100 m of this route</b> (in driving order):`:'No posted or closed bridges within 100 m of this route.')+
-    `<br><a class="glink" target="_blank" rel="noopener" href="${g}">Open this trip in Google Maps &#8599;</a>`;
-  fillList(routeList, hits.map(({b,d,along})=>({b, html:bridgeRow(b,'mi '+(along/MI).toFixed(1))+`<small>${Math.round(d)} m from route line</small>`})));
+  const layers=[];
+  if(safe && fast && safe!==fast) layers.push(L.polyline(fast.coords,{color:'#d93025',weight:4,opacity:.6,dashArray:'6 8'}).bindTooltip('Fastest route (blocked for your vehicle)'));
+  layers.push(L.polyline(shown.coords,{color:'#fff',weight:10,opacity:.7}));
+  const line=L.polyline(shown.coords,{color: safe?'#1a73e8':'#d93025',weight:6,opacity:.85}); layers.push(line);
+  layers.push(L.circleMarker([A.lat,A.lon],{radius:7,color:'#fff',weight:3,fillColor:'#0b8043',fillOpacity:1}).bindTooltip('Start'));
+  layers.push(L.marker([B.lat,B.lon],{title:'Destination'}).bindPopup(`<b>${esc(B.label||'Destination')}</b>`));
+  (fast&&fast.bad||[]).forEach(x=>excluded.set(x.b.id,x.b));
+  const avoided=[...excluded.values()].filter(b=>!(shown.bad||[]).some(x=>x.b.id===b.id) && !shown.near.some(x=>x.b.id===b.id&&x.d<=CONFLICT_BUF));
+  avoided.forEach(b=>layers.push(L.circleMarker([b.lat,b.lon],{radius:13,color:'#d93025',weight:3,fill:false}).bindTooltip('Avoided: '+esc(b.fac))));
+  routeLayer=L.layerGroup(layers).addTo(map); map.fitBounds(line.getBounds(),{padding:[30,30]});
+  // Google Maps link using the detour's waypoints
+  const wps=detourWaypoints(shown,fast);
+  let g=`https://www.google.com/maps/dir/?api=1&origin=${A.lat},${A.lon}&destination=${B.lat},${B.lon}&travelmode=driving`;
+  if(wps.length) g+='&waypoints='+wps.map(p=>p[0].toFixed(5)+','+p[1].toFixed(5)).join('%7C');
+  lastRoute={A,B,fast,safe,shown,avoided,wps,engine,gmaps:g,noSafe};
+  const vtxt = V.w!=null?`${V.w} t ${VT[V.type]}`:'no weight entered';
+  let h=`<div class="msg">From: ${esc(A.label||'')}<br>To: ${esc(B.label||'')}<br>Vehicle: ${vtxt}${V.avoidClosed?' · avoiding closed bridges':''}</div>`;
+  if(noSafe || !safe){
+    h+=`<div class="warnbox">&#9888; No route found that avoids every blocked bridge. The route shown crosses ${shown.bad.length} bridge${shown.bad.length===1?'':'s'} your vehicle should not use. ${engine==='OSRM'?' The detour server is down, so only OSRM\'s alternative routes could be checked. Try again shortly.':' Do not drive it as-is; check with the county or ODOT.'}</div>`;
+  } else if(safe!==fast){
+    const dm=(safe.dist-fast.dist)/MI, dt=(safe.time-fast.time)/60;
+    h+=`<div class="okbox">&#10004; Safe route: ${(safe.dist/MI).toFixed(1)} mi · about ${Math.round(safe.time/60)} min (${dm>=0?'+':''}${dm.toFixed(1)} mi, ${dt>=0?'+':''}${Math.round(dt)} min vs. fastest). It avoids ${avoided.length} bridge${avoided.length===1?'':'s'} on the fastest route.</div>`;
+  } else {
+    h+=`<div class="okbox">&#10004; The fastest route is OK for this vehicle: ${(safe.dist/MI).toFixed(1)} mi · about ${Math.round(safe.time/60)} min.</div>`;
+  }
+  h+=`<div class="msg">${note}Routing: ${shown.engine}. <a class="glink" target="_blank" rel="noopener" href="${g}">Open this ${safe&&safe!==fast?'safe ':''}route in Google Maps &#8599;</a>${wps.length?`<br><small>Google link includes ${wps.length} via point${wps.length>1?'s':''} to keep it on the detour; Google may still pick a different road, so check its route against this map.</small>`:''}</div>`;
+  routeMsg.innerHTML=h;
+  routeList.innerHTML='';
+  const addHead=t=>{ const e=document.createElement('h5'); e.textContent=t; routeList.appendChild(e); };
+  const addRow=(b,html)=>{ const d=document.createElement('div'); d.className='item'; d.innerHTML=html; d.onclick=()=>focus(b); routeList.appendChild(d); };
+  if(avoided.length){ addHead(`Avoided bridges (${avoided.length})`); avoided.forEach(b=>addRow(b, bridgeRow(b,'Avoided')+`<small><span class="tag bad">${esc(conflictReason(b,V)||'blocked')}</span></small>`)); }
+  if(shown.near.length){ addHead(`Posted/closed bridges within 100 m of the ${safe?'route shown':'route'} (${shown.near.length}), in driving order`);
+    shown.near.forEach(({b,d,along})=>{ const why=conflictReason(b,V); let tag;
+      if(!why) tag='<span class="tag ok">OK for your vehicle</span>';
+      else if(d>CONFLICT_BUF || (safe && excluded.has(b.id))) tag=`<span class="tag chk">Near route, likely not crossed (passes beside or under). Verify: ${esc(why)}</span>`;
+      else tag=`<span class="tag bad">On route: ${esc(why)}</span>`;
+      addRow(b, bridgeRow(b,'mi '+(along/MI).toFixed(1))+`<small>${Math.round(d)} m from route line ${tag}</small>`); }); }
 }
 document.getElementById('routeGo').onclick=runRoute;
-document.getElementById('routeClear').onclick=()=>{ if(routeLayer) map.removeLayer(routeLayer); routeLayer=null; routeList.innerHTML=''; routeMsg.textContent=''; };
+document.getElementById('routeClear').onclick=()=>{ if(routeLayer) map.removeLayer(routeLayer); routeLayer=null; lastRoute=null; routeList.innerHTML=''; routeMsg.textContent=''; };
 </script>
 </body>
 </html>
