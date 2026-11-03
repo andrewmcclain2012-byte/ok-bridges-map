@@ -105,6 +105,18 @@
   .navstart{margin-top:8px;width:100%;font-size:16px;padding:11px;background:#0b8043;}
   #map{transition:transform .4s linear;}
   .gpsdot{width:16px;height:16px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 2px rgba(26,115,232,.4),0 1px 4px rgba(0,0,0,.4);}
+  /* --- v6: address match quality / candidates --- */
+  .qbadge{display:inline-block;font-size:11px;font-weight:bold;border-radius:8px;padding:0 6px;color:#fff;background:#555;white-space:nowrap;}
+  .qbadge.q-exact{background:#0b8043;} .qbadge.q-place{background:#0b8043;} .qbadge.q-interp{background:#b06000;} .qbadge.q-street{background:#e8710a;} .qbadge.q-town{background:#d93025;} .qbadge.q-corrected{background:#1a73e8;} .qbadge.q-coords{background:#555;}
+  .gcands{display:none;margin-top:6px;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:6px 8px;font-size:12px;}
+  .gcands small{color:#666;display:block;}
+  .gc-head{margin-top:6px;font-weight:bold;color:#333;}
+  .gc-item{padding:5px 2px;border-top:1px solid #eee;cursor:pointer;} .gc-item:hover{background:#e8f0fe;}
+  .gcands summary{cursor:pointer;color:#1a73e8;margin-top:4px;}
+  .gc-hint{color:#7a4f01;margin-top:4px;font-size:12px;} .gc-forget{display:inline-block;margin-top:4px;color:#1a73e8;font-size:12px;}
+  .leaflet-tooltip.qtip{font-weight:bold;font-size:11px;padding:1px 6px;border:0;color:#fff;background:#555;box-shadow:0 1px 3px rgba(0,0,0,.4);}
+  .leaflet-tooltip.qtip:before{display:none;}
+  .leaflet-tooltip.qtip.q-exact,.leaflet-tooltip.qtip.q-place{background:#0b8043;} .leaflet-tooltip.qtip.q-interp{background:#b06000;} .leaflet-tooltip.qtip.q-street{background:#e8710a;} .leaflet-tooltip.qtip.q-town{background:#d93025;} .leaflet-tooltip.qtip.q-corrected{background:#1a73e8;}
 </style>
 </head>
 <body>
@@ -156,7 +168,7 @@
     <div class="list" id="routeList"></div>
   </div>
 </div>
-<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
+<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org), US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
@@ -250,7 +262,10 @@ async function placeSearch(term){
 }
 let t; q.addEventListener('input', () => { clearTimeout(t); const v=q.value.trim(); if (v.length<2){res.style.display='none';return;} t=setTimeout(()=>showResults(localSearch(v)),150); });
 async function doSearch(){ const v=q.value.trim(); if(!v) return;
-  const pc=parseCoords(v); if(pc){ res.style.display='none'; dropCoordPin(pc.lat,pc.lon,15); return; } const loc=localSearch(v); const places=await placeSearch(v); showResults([...places, ...loc]); if(places.length && !loc.length){ places[0].go(); } }
+  const pc=parseCoords(v); if(pc){ res.style.display='none'; dropCoordPin(pc.lat,pc.lon,15); return; }
+  if(/^\s*\d+[A-Za-z]?\s+\S/.test(v)){ let g=null; try{ g=await geocode(v); }catch(e){} if(g){ const cs=g.cands&&g.cands.length?g.cands:[g];
+      showResults(cs.map(c=>({html:`&#128205; <b>${esc(c.label)}</b> ${qBadge(c.quality)}<small>${esc(c.src||'')}</small>`, go:()=>dropCoordPin(c.lat,c.lon,17)}))); cs[0]&&dropCoordPin(cs[0].lat,cs[0].lon,17); return; } }
+  const loc=localSearch(v); const places=await placeSearch(v); showResults([...places, ...loc]); if(places.length && !loc.length){ places[0].go(); } }
 q.addEventListener('keydown', e => { if (e.key==='Enter') doSearch(); if (e.key==='Escape') res.style.display='none'; });
 document.getElementById('go').onclick = doSearch;
 map.on('click', () => res.style.display='none');
@@ -289,63 +304,216 @@ function showCard(k){ for (const [n,id] of Object.entries(cards)){ const c=docum
 document.getElementById('btnAddr').onclick = () => showCard('Addr');
 document.getElementById('btnRoute').onclick = () => showCard('Route');
 
-// ---- Geocoding: Photon (komoot) for type-ahead suggestions, Nominatim for final lookup ----
-function photonLabel(p){ const a=p.properties; const l1=[a.housenumber, a.street||a.name].filter(Boolean).join(' ') || a.name || ''; const l2=[a.city||a.town||a.village||a.county, a.state, a.postcode].filter(Boolean).join(', '); return {l1, l2}; }
-async function suggest(term){
-  const u=`https://photon.komoot.io/api/?limit=6&lang=en&lat=${OK_CENTER[0]}&lon=${OK_CENTER[1]}&bbox=-125,24,-66,50&q=`+encodeURIComponent(term);
-  const r=await fetch(u); const j=await r.json();
-  return (j.features||[]).filter(f=>f.properties.countrycode==='US').map(f=>{ const {l1,l2}=photonLabel(f); return {lat:f.geometry.coordinates[1], lon:f.geometry.coordinates[0], label:l1+(l2?', '+l2:''), l1, l2, hasNum:!!f.properties.housenumber}; });
+// ================= v6: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
+// Providers (all free, no keys): Oklahoma NG911 address points (county 911 rooftop/structure points, ArcGIS Online public layer),
+// US Census geocoder (interpolated along street ranges), OpenStreetMap Nominatim, Photon (komoot).
+const OK_BB={w:-103.01,s:33.6,e:-94.42,n:37.01};
+function inOK(lat,lon){ return isFinite(lat)&&isFinite(lon)&&lat>=OK_BB.s&&lat<=OK_BB.n&&lon>=OK_BB.w&&lon<=OK_BB.e; }
+const NG911_URL='https://services.arcgis.com/3xOwF6p0r7IHIjfn/ArcGIS/rest/services/NG911_Address_Points/FeatureServer/0/query';
+const Q_RANK={corrected:6,coords:6,exact:5,place:4,interp:4,street:2,town:1};
+const Q_TEXT={corrected:'Your corrected pin',coords:'Coordinates',exact:'Exact address',place:'Place match',interp:'Approximate: estimated along the street',street:'Approximate: street only (house number not found)',town:'Town only (address not found)'};
+const Q_SHORT={corrected:'Your pin',coords:'Coordinates',exact:'Exact address',place:'Place',interp:'Approx. address',street:'Street only',town:'Town only'};
+function qBadge(q){ return `<span class="qbadge q-${q||'town'}">${Q_TEXT[q]||'Match'}</span>`; }
+// ---- address parsing / normalizing ----
+const G_DIRS={N:'NORTH',S:'SOUTH',E:'EAST',W:'WEST',NE:'NORTHEAST',NW:'NORTHWEST',SE:'SOUTHEAST',SW:'SOUTHWEST'};
+Object.values(G_DIRS).forEach(v=>G_DIRS[v]=v);
+const G_TYPES={RD:'ROAD',ST:'STREET',STR:'STREET',AVE:'AVENUE',AV:'AVENUE',BLVD:'BOULEVARD',DR:'DRIVE',LN:'LANE',CT:'COURT',PL:'PLACE',CIR:'CIRCLE',TER:'TERRACE',TERR:'TERRACE',PKWY:'PARKWAY',HWY:'HIGHWAY',TRL:'TRAIL',CV:'COVE',PT:'POINT',EXPY:'EXPRESSWAY',FWY:'FREEWAY',TPKE:'TURNPIKE',SQ:'SQUARE',XING:'CROSSING',ALY:'ALLEY',BND:'BEND',RDG:'RIDGE',HTS:'HEIGHTS',LP:'LOOP',PASS:'PASS',PATH:'PATH',WAY:'WAY',LOOP:'LOOP',RUN:'RUN',ROW:'ROW',TRCE:'TRACE',CRK:'CREEK',SPGS:'SPRINGS',MTN:'MOUNTAIN',FT:'FORT',MT:'MOUNT',CO:'COUNTY'};
+const G_TYPEWORDS=new Set(['ROAD','STREET','AVENUE','BOULEVARD','DRIVE','LANE','COURT','PLACE','CIRCLE','TERRACE','PARKWAY','TRAIL','COVE','POINT','EXPRESSWAY','FREEWAY','TURNPIKE','SQUARE','CROSSING','ALLEY','BEND','RIDGE','HEIGHTS','LOOP','PASS','PATH','WAY','RUN','ROW','TRACE']);
+const G_GENERIC=new Set(['COUNTY','STATE','HIGHWAY','US','ROAD','STREET','OK','OKLAHOMA','ROUTE','THE']);
+const US_ST=new Set('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY'.split(' '));
+function gTok(s){ // uppercase tokens with common abbreviations expanded
+  let t=(s||'').toUpperCase().replace(/\bOK[- ](?=\d)/g,'STATE HIGHWAY ').replace(/\bSH[- ]?(?=\d)/g,'STATE HIGHWAY ').replace(/\bU\.?S\.?[- ](?=\d)/g,'US HIGHWAY ')
+    .replace(/\bC\.?R\.?[- ]?(?=\d)/g,'COUNTY ROAD ').replace(/\bC\.?S\.?[- ]?(?=\d)/g,'COUNTY STREET ').replace(/[.,#]/g,' ').replace(/[^A-Z0-9 \-]/g,' ').replace(/-/g,' ');
+  return t.split(/\s+/).filter(Boolean).map(w=>G_DIRS[w]||G_TYPES[w]||w);
 }
-// Address lookup chain: US Census (best for house numbers, via JSONP) -> Nominatim structured -> Nominatim free-form -> Photon
+function parseAddr(term){
+  let t=term.trim().replace(/\s+/g,' ');
+  const P={raw:t, num:null, city:null, zip:null, state:null, street:null};
+  let m=t.match(/[\s,]+(\d{5})(?:-\d{4})?\s*$/); if(m){ P.zip=m[1]; t=t.slice(0,m.index); }
+  m=t.match(/[\s,]+(oklahoma|okla\.?|[A-Za-z]{2})\s*$/i);
+  if(m){ const s=m[1].toUpperCase().replace('.',''); if(s==='OKLAHOMA'||s==='OKLA') P.state='OK'; else if(US_ST.has(s)&&!(G_TYPES[s]&&!/,/.test(t.slice(m.index,m.index+2)))) P.state=s; if(P.state) t=t.slice(0,m.index); }
+  if(!P.zip){ m=t.match(/[\s,]+(\d{5})\s*$/); if(m){ P.zip=m[1]; t=t.slice(0,m.index); } }
+  const parts=t.split(',').map(s=>s.trim()).filter(Boolean);
+  let street=parts[0]||'', city=parts.slice(1).join(' ')||null;
+  m=street.match(/^(\d+)(?:\s*-\s*\d+)?([A-Za-z])?\s+(.+)$/); if(m){ P.num=m[1]; street=m[3]; }
+  if(/^(RR|R\.R\.|RURAL ROUTE|HC|HCR|PO BOX|P\.O\.)\b/i.test(street)||/^(RR|RURAL ROUTE|HCR?)\b/i.test(t)) P.rural=true;
+  let toks=gTok(street);
+  if(!city && P.num){ // "305 N Main St Perkins" -> city after the last street-type word
+    let k=-1; toks.forEach((w,i)=>{ if(i>0&&(G_TYPEWORDS.has(w)||w==='HIGHWAY')) k=i; });
+    if(k>0 && k<toks.length-1 && /^\d/.test(toks[k+1])) k++;
+    if(k>0 && k<toks.length-1 && !/^\d/.test(toks[k+1])){ const rest=toks.slice(k+1); if(G_DIRS[rest[0]]&&rest.length>1){ k++; } city=toks.slice(k+1).join(' '); toks=toks.slice(0,k+1); street=toks.join(' '); }
+  }
+  P.city=city?city.toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim()||null:null;
+  if(P.num){ // directionals / type / core name tokens
+    let a=0,b=toks.length; if(toks.length>1&&G_DIRS[toks[0]]&&G_DIRS[toks[0]]===toks[0]) { P.predir=toks[0]; a=1; }
+    if(b-a>1&&G_DIRS[toks[b-1]]) { P.sufdir=toks[b-1]; b--; }
+    if(b-a>1&&G_TYPEWORDS.has(toks[b-1])) { P.type=toks[b-1]; b--; }
+    P.core=toks.slice(a,b); if(!P.core.length) P.core=toks.slice();
+    const dist=P.core.filter(w=>!G_GENERIC.has(w)&&!G_DIRS[w]); P.key=(dist.sort((x,y)=>y.length-x.length)[0]||P.core[P.core.length-1]||'').replace(/[^A-Z0-9]/g,'');
+  }
+  P.street=street; return P;
+}
+function normTerm(term){ const P=parseAddr(term); return [P.num, ...gTok(P.street), P.city, P.zip].filter(Boolean).join(' '); }
+function cityHit(P,names){ if(!P.city) return undefined; const c=P.city; const ns=names.filter(Boolean).map(s=>String(s).toUpperCase().replace(/[^A-Z ]/g,' ').replace(/\s+/g,' ').trim()).filter(s=>s&&s!=='UNINCORPORATED');
+  if(!ns.length) return undefined; return ns.some(n=>n===c||n.startsWith(c+' ')||c.startsWith(n+' ')||n.replace(/ COUNTY| CO$/,'')===c||(c.length>=3&&n.startsWith(c))); }
+function coreSim(P,recToks){ const want=P.core.filter(w=>!G_DIRS[w]), have=new Set(recToks); if(!want.length) return 0; const hit=want.filter(w=>have.has(w)).length; const sig=want.filter(w=>!G_GENERIC.has(w)); if(sig.length&&!sig.every(w=>have.has(w))) return hit/want.length*0.4; return hit/Math.max(want.length,recToks.filter(w=>!G_DIRS[w]&&!G_TYPEWORDS.has(w)).length||1); }
+function titleCase(s){ return (s||'').toLowerCase().replace(/\b([a-z])/g,c=>c.toUpperCase()).replace(/\b(Ok|Nw|Ne|Sw|Se|Us)\b/g,x=>x.toUpperCase()).replace(/(\d)(St|Nd|Rd|Th)\b/g,(a,d,s)=>d+s.toLowerCase()); }
+function withTimeout(p,ms){ return Promise.race([p, new Promise(ok=>setTimeout(()=>ok(null),ms))]); }
+// ---- provider 1: Oklahoma NG911 address points (rooftop / structure points from county 911 offices) ----
+const NG_FIELDS='fulladdr,address,predir,pretype,street,streettype,sufdir,city,postcomm,msagcomm,county,zipcode,placement';
+async function ngQuery(where,n){ const u=NG911_URL+'?'+new URLSearchParams({where,outFields:NG_FIELDS,returnGeometry:'true',outSR:'4326',resultRecordCount:String(n||25),f:'json'});
+  const r=await fetch(u); const j=await r.json(); if(j.error) throw new Error(j.error.message); return (j.features||[]).filter(f=>f.geometry).map(f=>Object.assign({lat:f.geometry.y,lon:f.geometry.x},f.attributes)); }
+function ngStreetToks(a){ return gTok([a.predir,a.pretype,a.street,a.streettype,a.sufdir].filter(Boolean).join(' ')); }
+function ngLabel(a,num){ const st=[num??a.address,a.predir,a.pretype,a.street,a.streettype,a.sufdir].filter(x=>x!=null&&x!=='').join(' ');
+  const town=(a.postcomm&&a.postcomm!=='N/A'?a.postcomm:null)||(a.city&&a.city!=='UNINCORPORATED'?a.city:null)||a.county||''; return titleCase(st)+', '+titleCase(town)+', OK'+(a.zipcode&&a.zipcode.trim()?' '+a.zipcode.trim():''); }
+function ngJudge(P,a){ const toks=ngStreetToks(a); const rp=G_DIRS[(a.predir||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) return null;
+  const sim=coreSim(P,toks); if(sim<0.5) return null; return {sim, cityOk:cityHit(P,[a.city,a.postcomm,a.msagcomm]), zip:(a.zipcode||'').trim()||null, typeOk:(()=>{ const ty=(a.streettype||'').trim().toUpperCase(); return !P.type||!ty||(G_TYPES[ty]||ty)===P.type; })()}; }
+async function ng911Geo(P){
+  if(!P.num||!P.key) return [];
+  const like=`street LIKE '%${P.key}%'`; const out=[];
+  const cf=[]; if(P.city){ const c=P.city.replace(/[^A-Z ]/g,''); cf.push(`postcomm='${c}'`,`city='${c}'`,`msagcomm='${c}'`); } if(P.zip) cf.push(`zipcode='${P.zip}'`);
+  let recs=cf.length?await ngQuery(`address=${+P.num} AND ${like} AND (${cf.join(' OR ')})`,25):[];
+  if(!recs.length) recs=await ngQuery(`address=${+P.num} AND ${like}`,50);
+  for(const a of recs){ const j=ngJudge(P,a); if(!j) continue; out.push({lat:a.lat,lon:a.lon,label:ngLabel(a),quality:'exact',src:'OK 911 address point',cityOk:j.cityOk,zip:j.zip,sim:j.sim+(j.typeOk?0:-0.2),id:'ng'+a.lat.toFixed(5)+a.lon.toFixed(5)}); }
+  if(out.some(c=>c.cityOk!==false)) return out;
+  // no exact point: estimate from neighbouring 911 address points on the same street (same side of the road preferred)
+  const n=+P.num, span=Math.max(300,Math.round(n*0.1));
+  const nb=(await ngQuery(`${like} AND address>=${n-span} AND address<=${n+span}`,400)).map(a=>({a,j:ngJudge(P,a)})).filter(x=>x.j&&x.j.cityOk!==false);
+  const groups={}; nb.forEach(x=>{ const k=ngStreetToks(x.a).join(' ')+'|'+(x.a.postcomm||x.a.city); (groups[k]=groups[k]||[]).push(x); });
+  for(const g of Object.values(groups)){
+    const pick=arr=>{ const lo=arr.filter(x=>x.a.address<n).sort((p,q)=>q.a.address-p.a.address)[0], hi=arr.filter(x=>x.a.address>n).sort((p,q)=>p.a.address-q.a.address)[0]; return {lo,hi}; };
+    let {lo,hi}=pick(g.filter(x=>x.a.address%2===n%2)); if(!lo||!hi){ const b=pick(g); lo=lo||b.lo; hi=hi||b.hi; }
+    let lat,lon,gap;
+    if(lo&&hi){ const f=(n-lo.a.address)/(hi.a.address-lo.a.address); lat=lo.a.lat+(hi.a.lat-lo.a.lat)*f; lon=lo.a.lon+(hi.a.lon-lo.a.lon)*f; gap=hi.a.address-lo.a.address;
+      if(map.distance([lo.a.lat,lo.a.lon],[hi.a.lat,hi.a.lon])>3000) continue; }
+    else { const x=lo||hi; if(!x||Math.abs(x.a.address-n)>60) continue; lat=x.a.lat; lon=x.a.lon; gap=Math.abs(x.a.address-n); }
+    const a=(lo||hi).a; out.push({lat,lon,label:ngLabel(a,n),quality:'interp',src:'estimated from neighboring 911 address points',cityOk:(lo||hi).j.cityOk,zip:(a.zipcode||'').trim()||null,sim:(lo||hi).j.sim-Math.min(0.3,gap/2000)+0.15,id:'ngi'+lat.toFixed(4)});
+  }
+  return out;
+}
+// ---- provider 2: US Census (street-range interpolation) ----
 function jsonp(url){ return new Promise((ok,no)=>{ const cb='cb'+Math.random().toString(36).slice(2); const sc=document.createElement('script');
   const done=()=>{ clearTimeout(t); delete window[cb]; sc.remove(); }; const t=setTimeout(()=>{done(); no(new Error('timeout'));},12000);
   window[cb]=d=>{done(); ok(d);}; sc.onerror=()=>{done(); no(new Error('jsonp failed'));}; sc.src=url+'&format=jsonp&callback='+cb; document.head.appendChild(sc); }); }
-async function censusGeo(term){
-  const d=await jsonp('https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&address='+encodeURIComponent(term));
-  const m=d&&d.result&&d.result.addressMatches; if(!m||!m.length) return null;
-  return {lat:m[0].coordinates.y, lon:m[0].coordinates.x, label:m[0].matchedAddress, src:'US Census'};
+function okTerm(P){ // always make the state explicit
+  return [P.num?P.num+' '+P.street:P.street, P.city, 'OK', P.zip].filter(Boolean).join(', ').replace(/, (\d{5})$/,' $1'); }
+async function censusGeo(P){
+  if(!P.num) return [];
+  const d=await jsonp('https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?benchmark=Public_AR_Current&address='+encodeURIComponent(okTerm(P)));
+  const m=(d&&d.result&&d.result.addressMatches)||[];
+  return m.filter(x=>x.addressComponents&&x.addressComponents.state==='OK'&&inOK(x.coordinates.y,x.coordinates.x)).map(x=>{ const c=x.addressComponents;
+    const toks=gTok([c.preDirection,c.preType,c.streetName,c.suffixType,c.suffixDirection].join(' '));
+    const rp=G_DIRS[c.preDirection]; const dirBad=P.predir&&rp&&rp!==P.predir;
+    return {lat:x.coordinates.y,lon:x.coordinates.x,label:titleCase(x.matchedAddress.replace(/, OK, /,', OK ')),quality:dirBad?'street':'interp',src:'US Census (estimated along the street block)',cityOk:cityHit(P,[c.city]),zip:c.zip||null,sim:coreSim(P,toks)}; });
 }
-async function nomFetch(params){ const u='https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=3&countrycodes=us&'+params;
-  const r=await fetch(u,{headers:{'Accept':'application/json'}}); const j=await r.json(); return j.map(x=>({lat:+x.lat, lon:+x.lon, label:x.display_name, src:'OpenStreetMap', addr:x.address||{}})); }
-function cityOf(term){ if(!/^\s*\d+[A-Za-z]?\s+\S/.test(term)) return null; const p=term.split(',').map(x=>x.trim()).filter(Boolean); if(p.length<2) return null; return p[1].replace(/\s+[A-Za-z]{2}(\s+\d{5})?$/,'').toLowerCase(); }
-function cityMatches(g,city){ if(!city||!g.addr) return true; const a=g.addr; return [a.city,a.town,a.village,a.hamlet,a.municipality,a.suburb].filter(Boolean).some(v=>v.toLowerCase().includes(city)||city.includes(v.toLowerCase())); }
-function nomStructured(term){
-  const p=term.split(',').map(x=>x.trim()).filter(Boolean); if(p.length<2) return Promise.resolve(null);
-  const q={street:p[0], city:p[1]}; const last=p.slice(2).join(' ');
-  const z=last.match(/\b(\d{5})(-\d{4})?\b/); if(z) q.postalcode=z[1];
-  const st=last.replace(/\b\d{5}(-\d{4})?\b/,'').trim(); if(st) q.state=st;
-  if(!q.state){ const z2=p[1].match(/^(.*?)\s+([A-Za-z]{2})\s*(\d{5})?$/); if(z2){ q.city=z2[1]; q.state=z2[2]; if(z2[3]) q.postalcode=z2[3]; } }
-  return nomFetch(new URLSearchParams(q).toString());
+// ---- provider 3: OpenStreetMap Nominatim (max 1 request/second) ----
+let nomLast=0; async function nomThrottle(){ const w=nomLast+1100-Date.now(); nomLast=Math.max(Date.now(),nomLast+1100); if(w>0) await new Promise(r=>setTimeout(r,w)); }
+async function nomFetch(params){ await nomThrottle(); const u='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&viewbox=-103.01,37.01,-94.42,33.6&bounded=1&'+params;
+  const r=await fetch(u,{headers:{'Accept':'application/json'}}); return await r.json(); }
+function nomCand(P,x){ const a=x.address||{}; const lat=+x.lat, lon=+x.lon; if(a.state!=='Oklahoma'||!inOK(lat,lon)) return null;
+  const hn=(a.house_number||'').split(/[;,\- ]/)[0]; let q;
+  const toks=gTok([a.road].join(' ')); const nsim=P.num?coreSim(P,toks):0.8;
+  if(P.num){ if(hn&&hn===P.num&&nsim>=0.5) q='exact'; else if(hn&&hn===P.num) return null; else if(hn) return null; else if(x.category==='highway'||x.addresstype==='road') q='street'; else if(/city|town|village|hamlet|municipality|county|postcode|suburb|neighbourhood/.test(x.addresstype||x.type)) q='town'; else q='street'; }
+  else q='place';
+  return {lat,lon,label:x.display_name.replace(/, United States$/,''),quality:q,src:'OpenStreetMap',cityOk:cityHit(P,[a.city,a.town,a.village,a.hamlet,a.municipality,a.suburb]),zip:a.postcode||null,sim:nsim}; }
+async function nominatimGeo(P){
+  let out=[];
+  if(P.num&&(P.city||P.zip)){ const q={street:P.num+' '+P.street,state:'Oklahoma'}; if(P.city) q.city=P.city; if(P.zip) q.postalcode=P.zip;
+    out=(await nomFetch(new URLSearchParams(q).toString())).map(x=>nomCand(P,x)).filter(Boolean); }
+  if(!out.some(c=>c.quality==='exact')) out=out.concat((await nomFetch('q='+encodeURIComponent(okTerm(P)))).map(x=>nomCand(P,x)).filter(Boolean));
+  return out;
 }
-function nomFree(term){ return nomFetch('viewbox=-103.1,37.1,-94.4,33.6&bounded=0&q='+encodeURIComponent(term)); }
-// Nominatim results must be in the city the user typed (avoids e.g. "Dewey" matching Dewey County); otherwise kept only as a last resort
-async function nomChecked(f,term){ const rs=await f(term); if(!rs||!rs.length) return null; const c=cityOf(term); const good=rs.find(g=>cityMatches(g,c)); return {good, weak:rs[0]}; }
-async function photonGeo(term){ const s=await suggest(term); if(!s.length) return null; const c=cityOf(term);
-  const good=s.find(g=>!c||(g.l2||'').toLowerCase().includes(c)); return {good:good&&Object.assign({src:'Photon'},good), weak:Object.assign({src:'Photon'},s[0])}; }
+// ---- provider 4: Photon (komoot), Oklahoma bounding box only ----
+async function photonRaw(q,extra){ const u=`https://photon.komoot.io/api/?limit=6&lang=en&lat=${OK_CENTER[0]}&lon=${OK_CENTER[1]}&bbox=${OK_BB.w},${OK_BB.s},${OK_BB.e},${OK_BB.n}${extra||''}&q=`+encodeURIComponent(q);
+  const r=await fetch(u); const j=await r.json(); return (j.features||[]).filter(f=>f.properties.countrycode==='US'&&/^(Oklahoma|OK)$/.test(f.properties.state||'')&&inOK(f.geometry.coordinates[1],f.geometry.coordinates[0])); }
+function photonLabel(p){ const a=p.properties; const l1=[a.housenumber, a.street||a.name].filter(Boolean).join(' ') || a.name || ''; const l2=[a.city||a.town||a.village||a.district||a.county, 'OK', a.postcode].filter(Boolean).join(', '); return {l1, l2}; }
+function photonCand(P,f){ const a=f.properties; const {l1,l2}=photonLabel(f); let q; const psim=P.num?coreSim(P,gTok(a.street||a.name||'')):0.8;
+  if(P.num){ if(a.housenumber&&a.housenumber.split(/[;,\- ]/)[0]===P.num&&psim>=0.5) q='exact'; else if(a.housenumber) return null; else if(a.type==='street'||a.osm_key==='highway') q='street'; else if(/city|town|village|district|locality|county/.test(a.type||'')||a.osm_key==='place') q='town'; else return null; }
+  else q='place';
+  return {lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],label:l1+(l2?', '+l2:''),l1,l2,quality:q,src:'OpenStreetMap (Photon)',cityOk:cityHit(P,[a.city,a.town,a.village,a.district,a.locality,a.name]),zip:a.postcode||null,sim:psim}; }
+async function photonGeo(P){ const out=(await photonRaw(okTerm(P))).map(f=>photonCand(P,f)).filter(Boolean);
+  if(P.city&&P.num){ (await photonRaw(P.city+', Oklahoma','&osm_tag=place')).forEach(f=>{ const c=photonCand(Object.assign({},P,{num:null}),f); if(c&&c.cityOk!==false){ c.quality='town'; c.label=c.label; out.push(c);} }); }
+  return out; }
+// Type-ahead suggestions: 911 address points first (when a house number is typed), then Photon
+async function suggest(term){
+  const P=parseAddr(term); const jobs=[photonRaw(okTerm(P)).then(fs=>fs.map(f=>{ const c=photonCand(Object.assign({},P,{num:null}),f); const a=f.properties;
+      const exact=!!(P.num&&a.housenumber&&a.housenumber.split(/[;,\- ]/)[0]===P.num); return Object.assign(c,{hasNum:!!a.housenumber,num:a.housenumber||null,quality:a.housenumber?(exact?'exact':'other'):c.quality}); })).catch(()=>[])];
+  if(P.num&&P.key&&P.key.length>=2) jobs.unshift((async()=>{ const w=`address=${+P.num} AND street LIKE '%${P.key}%'`;
+      const cf=P.city?` AND (postcomm LIKE '${P.city.replace(/[^A-Z ]/g,'')}%' OR city LIKE '${P.city.replace(/[^A-Z ]/g,'')}%' OR msagcomm LIKE '${P.city.replace(/[^A-Z ]/g,'')}%')`:'';
+      let rs=cf?await ngQuery(w+cf,6):[]; if(!rs.length) rs=await ngQuery(w,12);
+      rs=rs.filter(a=>{ const rp=G_DIRS[(a.predir||'').trim().toUpperCase()]; return !(P.predir&&rp&&rp!==P.predir); });
+      rs.forEach(a=>a._c=cityHit(P,[a.city,a.postcomm,a.msagcomm])); rs.sort((x,y)=>(y._c===true)-(x._c===true));
+      return rs.slice(0,5).map(a=>{ const lbl=ngLabel(a); const i=lbl.indexOf(', ');
+      return {lat:a.lat,lon:a.lon,label:lbl,l1:lbl.slice(0,i),l2:lbl.slice(i+2)+' · 911 address point',hasNum:true,num:P.num,quality:'exact',src:'OK 911 address point',cityOk:a._c}; }); })().catch(()=>[]));
+  let all=(await Promise.all(jobs)).flat(); if(P.city&&all.some(s=>s.cityOk===true)) all=all.filter(s=>s.cityOk!==false).concat(all.filter(s=>s.cityOk===false)); const seen=[]; return all.filter(s=>{ if(seen.some(o=>Math.abs(o.lat-s.lat)<3e-4&&Math.abs(o.lon-s.lon)<3e-4)) return false; seen.push(s); return true; }).slice(0,7);
+}
+// ---- saved corrections (dragged pins), per typed address, on this device ----
+const FIX_PREFIX='okbFix:';
+function getFix(term){ try{ return JSON.parse(localStorage.getItem(FIX_PREFIX+normTerm(term))||'null'); }catch(e){ return null; } }
+function saveFix(term,lat,lon,label){ try{ localStorage.setItem(FIX_PREFIX+normTerm(term),JSON.stringify({lat,lon,label,t:Date.now()})); }catch(e){} }
+function clearFix(term){ try{ localStorage.removeItem(FIX_PREFIX+normTerm(term)); }catch(e){} }
+// ---- combine + score ----
+function scoreCand(c,P){ let s={corrected:300,coords:300,exact:100,place:80,interp:70,street:35,town:10}[c.quality]||0;
+  if(c.cityOk===true) s+=20; else if(c.cityOk===false) s-=60;
+  if(P.zip&&c.zip) s+= c.zip.slice(0,5)===P.zip?10:-15;
+  if(c.quality==='exact'||c.quality==='interp') s+=Math.max(-1,Math.min(1,c.sim||0))*25;
+  if(/911 address point/.test(c.src)) s+=10; return s; }
 async function geocode(term){
-  const pc=parseCoords(term); if(pc) return coordPlace(pc.lat,pc.lon);
-  const hasNum=/^\s*\d+[A-Za-z]?\s+\S/.test(term);
-  const nS=t=>nomChecked(nomStructured,t), nF=t=>nomChecked(nomFree,t);
-  const chain = hasNum ? [censusGeo, nS, nF, photonGeo] : [nF, censusGeo, photonGeo];
-  let weak=null;
-  for(const f of chain){ try{ const g=await f(term); if(!g) continue; if('good' in g || 'weak' in g){ if(g.good) return g.good; if(g.weak&&!weak) weak=g.weak; continue; } return g; }catch(e){ /* try next */ } }
-  // Street address not found in the typed city: fall back to that city's center, clearly labeled
-  const c=cityOf(term);
-  if(c){ try{ const p=term.split(',').map(x=>x.trim()); const rs=await nomFree(p.slice(1).join(', ')); const r={good:rs.find(g=>cityMatches(g,c)&&/city|town|village|hamlet|municipality/.test(g.label)||cityMatches(g,c)&&g.addr&&(g.addr.city||g.addr.town||g.addr.village))};
-    if(r.good){ r.good.approx=true; r.good.label='(street address not found; city center) '+r.good.label; return r.good; } }catch(e){} }
-  if(weak){ weak.approx=true; weak.label='(approximate match) '+weak.label; }
-  return weak;
+  const pc=parseCoords(term); if(pc) return Object.assign(coordPlace(pc.lat,pc.lon),{quality:'coords',cands:[]});
+  const fix=getFix(term);
+  if(fix) { const p={lat:fix.lat,lon:fix.lon,label:fix.label,baseLabel:fix.label,quality:'corrected',src:'pin you moved (saved on this device)',term}; p.cands=[p]; return p; }
+  const P=parseAddr(term);
+  const provs=[ng911Geo,censusGeo,nominatimGeo,photonGeo].map(f=>withTimeout(f(P).catch(()=>[]),10000).then(r=>r||[]));
+  let all=(await Promise.all(provs)).flat().filter(c=>c&&inOK(c.lat,c.lon));
+  all.forEach(c=>c.score=scoreCand(c,P));
+  if(!P.city&&!P.zip){ const ref=(typeof lastFix!=='undefined'&&lastFix)?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]; all.forEach(c=>c.score+=8*Math.max(0,1-map.distance(ref,[c.lat,c.lon])/200000)); } // no town typed: prefer matches near you / the map
+  // agreement bonus: independent sources within 150 m of each other
+  all.forEach(c=>{ const srcs=new Set(all.filter(o=>o!==c&&o.src!==c.src&&(o.quality==='exact'||o.quality==='interp')&&map.distance([c.lat,c.lon],[o.lat,o.lon])<150).map(o=>o.src)); c.score+=Math.min(2,srcs.size)*6; });
+  all.sort((a,b)=>b.score-a.score);
+  const kept=[]; for(const c of all){ const k=kept.find(o=>map.distance([o.lat,o.lon],[c.lat,c.lon])<(c.quality==='town'||o.quality==='town'?1500:(c.quality==='exact'&&o.quality==='exact'?300:60))); if(k){ if(!k.also.includes(c.src)&&k.src!==c.src) k.also.push(c.src); continue; } c.also=[]; kept.push(c); }
+  if(!kept.length) return null;
+  const top=kept[0], strong=q=>q==='exact'||q==='interp'||q==='place';
+  const pruned=kept.filter((c,i)=>i===0||!(top.cityOk===true&&strong(top.quality)&&c.cityOk===false)&&!((top.quality==='exact'||top.quality==='interp')&&c.quality==='town'));
+  kept.length=0; kept.push(...pruned);
+  const best=Object.assign({},kept[0]); best.term=term; best.baseLabel=best.label; best.cands=kept.slice(0,5); best.parsed=P;
+  return best;
+}
+// ---- showing results: candidate pick list under an input, quality-labelled draggable pins ----
+function candBox(inp){ let b=inp._cbox; if(!b){ b=document.createElement('div'); b.className='gcands'; const w=inp.closest('.acwrap')||inp; w.parentNode.insertBefore(b,w.nextSibling); inp._cbox=b; } return b; }
+function hideCands(inp){ if(inp._cbox) inp._cbox.style.display='none'; }
+function showCands(inp,p){
+  const b=candBox(inp); if(!p||p.quality==='coords'){ b.style.display='none'; return; }
+  const others=(p.cands||[]).filter(c=>map.distance([c.lat,c.lon],[p.lat,p.lon])>60);
+  let h=`<div class="gc-using">Using: <b>${esc(p.label)}</b> ${qBadge(p.quality)}<small>${esc(p.src||'')}${p.also&&p.also.length?' · confirmed by '+esc(p.also.join(', ')):''}</small></div>`;
+  if(p.quality==='corrected') h+=`<a href="#" class="gc-forget">Forget my corrected pin for this address</a>`;
+  else if(p.quality!=='exact') h+=`<div class="gc-hint">Not exact. If the pin is in the wrong spot, drag it to the right place and it will be remembered.</div>`;
+  const multiTown=p.parsed&&!p.parsed.city&&!p.parsed.zip&&others.some(c=>c.quality==='exact');
+  if(others.length){ h+=`<div class="gc-head">${multiTown?'This address exists in more than one town. Pick the right one (or add the town):':(p.quality==='exact'&&others.every(c=>Q_RANK[c.quality]<Q_RANK.exact)?'Other possible matches':'Did you mean one of these?')}</div>`;
+    const sure=p.quality==='exact'&&p.cityOk===true; if(sure) h=h.replace(/<div class="gc-head">.*?<\/div>$/,'')+`<details><summary>${others.length} other possible match${others.length>1?'es':''}</summary>`;
+    others.slice(0,4).forEach((c,i)=>{ h+=`<div class="gc-item" data-i="${(p.cands||[]).indexOf(c)}"><b>${esc(c.label)}</b> ${qBadge(c.quality)}<small>${(map.distance([c.lat,c.lon],[p.lat,p.lon])/MI).toFixed(1)} mi from the pin · ${esc(c.src||'')}</small></div>`; }); if(sure) h+='</details>'; }
+  b.innerHTML=h; b.style.display='block';
+  b.querySelectorAll('.gc-item').forEach(d=>d.onclick=()=>{ const c=p.cands[+d.dataset.i]; inp.place=Object.assign({},c,{term:p.term,baseLabel:c.label,cands:p.cands,parsed:p.parsed}); showCands(inp,inp.place); inp._rerun&&inp._rerun(); });
+  const f=b.querySelector('.gc-forget'); if(f) f.onclick=e=>{ e.preventDefault(); clearFix(p.term||inp.value); inp.place=null; inp._rerun&&inp._rerun(); };
+}
+function addrMarker(p,inp,title){
+  const m=L.marker([p.lat,p.lon],{title:title||p.label,draggable:!NAV.on,autoPan:true});
+  m.bindTooltip(Q_SHORT[p.quality]||'Match',{permanent:true,direction:'top',offset:[-16,-14],className:'qtip q-'+(p.quality||'town')});
+  m.bindPopup(()=>`<b>${esc(p.label)}</b><br>${qBadge(p.quality)}<br><small>${esc(p.src||'')}</small>${coordBlock(p.lat,p.lon)}<div class="gc-hint">Wrong spot? Drag this pin to the right place.</div>`,{maxWidth:320});
+  m.on('dragend',()=>{ if(NAV.on) return; const ll=m.getLatLng(); const term=p.term||inp.value.trim(); const label=p.baseLabel||p.label;
+    if(term&&!parseCoords(term)) saveFix(term,ll.lat,ll.lng,label);
+    inp.place={lat:ll.lat,lon:ll.lng,label,baseLabel:label,quality:'corrected',src:'pin you moved (saved on this device)',term,cands:[]}; showCands(inp,inp.place); inp._rerun&&inp._rerun(); });
+  return m;
 }
 // Attach autocomplete to an input; stores chosen place on input.place
 function autocomplete(inp, box, onPick){
   let timer, items=[], idx=-1, seq=0;
-  const close=()=>{box.style.display='none'; idx=-1;};
-  const render=()=>{ box.innerHTML=''; items.forEach((it,i)=>{ const d=document.createElement('div'); if(i===idx) d.className='sel'; d.innerHTML=`<b>${esc(it.l1)}</b><small>${esc(it.l2)}</small>`; d.onmousedown=(e)=>{e.preventDefault(); pick(it);}; box.appendChild(d); }); box.style.display=items.length?'block':'none'; };
-  const pick=(it)=>{ const typed=inp.value.trim(); const m=typed.match(/^\s*(\d+[A-Za-z]?)\s+/);
-    if(m && !it.hasNum){ inp.value=typed.split(',')[0]+(it.l2?', '+it.l2:''); inp.place=null; } // keep the house number; full lookup on run
-    else { inp.value=it.label; inp.place=it; }
-    close(); onPick && onPick(it); };
-  inp.addEventListener('input',()=>{ inp.place=null; clearTimeout(timer); const v=inp.value.trim(); if(v.length<3||parseCoords(v)){close();return;} const my=++seq;
+  const close=()=>{box.style.display='none'; idx=-1;}; inp._acClose=()=>{ seq++; clearTimeout(timer); close(); };
+  const render=()=>{ box.innerHTML=''; items.forEach((it,i)=>{ const d=document.createElement('div'); if(i===idx) d.className='sel'; d.innerHTML=`<b>${esc(it.l1)}</b>${it.quality==='exact'?' <span class="qbadge q-exact">exact</span>':''}<small>${esc(it.l2)}</small>`; d.onmousedown=(e)=>{e.preventDefault(); pick(it);}; box.appendChild(d); }); box.style.display=items.length?'block':'none'; };
+  const pick=(it)=>{ const typed=inp.value.trim(); const m=typed.match(/^\s*(\d+)[A-Za-z]?\s+/);
+    if(m && it.quality!=='exact' && !(it.num&&it.num.startsWith(m[1]))){ inp.value=typed.split(',')[0]+(it.l2?', '+it.l2.replace(/ · .*$/,''):''); inp.place=null; } // keep the typed house number; full lookup on run
+    else { inp.value=it.label; inp.place=Object.assign({term:it.label,baseLabel:it.label,cands:[]},it,{quality:it.quality==='other'?'exact':it.quality}); }
+    close(); hideCands(inp); onPick && onPick(it); };
+  inp.addEventListener('input',()=>{ inp.place=null; hideCands(inp); clearTimeout(timer); const v=inp.value.trim(); if(v.length<3||parseCoords(v)){close();return;} const my=++seq;
     timer=setTimeout(async()=>{ try{ const s=await suggest(v); if(my!==seq) return; items=s; idx=-1; render(); }catch(e){ close(); } }, 350); });
   inp.addEventListener('keydown',e=>{
     if(e.key==='ArrowDown'&&items.length){idx=Math.min(idx+1,items.length-1);render();e.preventDefault();}
@@ -355,7 +523,7 @@ function autocomplete(inp, box, onPick){
   });
   inp.addEventListener('blur',()=>setTimeout(close,150));
 }
-async function resolve(inp){ if (inp.place) return inp.place; const v=inp.value.trim(); if(!v) return null; const g=await geocode(v); if(g) inp.place=g; return g; }
+async function resolve(inp){ inp._acClose&&inp._acClose(); if (inp.place){ if(!inp.place.cands) hideCands(inp); return inp.place; } const v=inp.value.trim(); if(!v) return null; const g=await geocode(v); if(g) inp.place=g; showCands(inp,g); return g; }
 
 // ---- (1) Address search with radius ----
 const addrIn=document.getElementById('addrIn'), addrMsg=document.getElementById('addrMsg'), addrList=document.getElementById('addrList'), addrRad=document.getElementById('addrRad');
@@ -363,18 +531,18 @@ let addrLayer=null;
 async function runAddr(){
   addrMsg.className='msg'; addrMsg.textContent='Looking up address…'; addrList.innerHTML='';
   let p; try{ p=await resolve(addrIn); }catch(e){ p=null; }
-  if(!p){ addrMsg.className='msg err'; addrMsg.textContent='Address not found. Try adding the city and "OK".'; return; }
+  if(!p){ addrMsg.className='msg err'; addrMsg.textContent=/^\s*(RR|R\.R\.|RURAL ROUTE|HCR?|PO BOX|P\.O\.)\b/i.test(addrIn.value)?'Rural Route / PO Box addresses have no map location. Use the 911 street address, or tap the map to drop a pin.':'Address not found. Check the spelling, add the town, or tap the map to drop a pin.'; return; }
   const rad=+addrRad.value*MI;
   if(addrLayer) map.removeLayer(addrLayer);
-  const pin=L.marker([p.lat,p.lon],{title:p.label}).bindPopup(`<b>${esc(p.label)}</b>`);
+  const pin=addrMarker(p,addrIn,p.label);
   addrLayer=L.layerGroup([L.circle([p.lat,p.lon],{radius:rad,color:'#1a73e8',weight:2,fillOpacity:.06,interactive:false}), pin]).addTo(map);
   map.fitBounds(L.latLng(p.lat,p.lon).toBounds(rad*2),{padding:[20,20]});
   const near=BRIDGES.map(b=>({b,d:map.distance([p.lat,p.lon],[b.lat,b.lon])})).filter(x=>x.d<=rad).sort((a,b)=>a.d-b.d);
   const c={closed:0,heavy:0,posted:0}; near.forEach(x=>c[x.b.sev]++);
-  addrMsg.textContent = `Found: ${p.label}${p.src?' ('+p.src+')':''}. ` + (near.length ? `${near.length} posted/closed bridge${near.length>1?'s':''} within ${addrRad.value} mi (${c.closed} closed, ${c.heavy} ≤10 t, ${c.posted} posted). Nearest first:` : `No posted or closed bridges within ${addrRad.value} mi of this address.`);
+  addrMsg.textContent = `Found: ${p.label}${p.quality&&Q_TEXT[p.quality]?' ('+Q_TEXT[p.quality]+')':''}. ` + (near.length ? `${near.length} posted/closed bridge${near.length>1?'s':''} within ${addrRad.value} mi (${c.closed} closed, ${c.heavy} ≤10 t, ${c.posted} posted). Nearest first:` : `No posted or closed bridges within ${addrRad.value} mi of this address.`);
   fillList(addrList, near.slice(0,200).map(({b,d})=>({b, html:bridgeRow(b,(d/MI).toFixed(1)+' mi')})));
 }
-autocomplete(addrIn, document.getElementById('addrAc'), ()=>runAddr());
+autocomplete(addrIn, document.getElementById('addrAc'), ()=>runAddr()); addrIn._rerun=()=>runAddr();
 document.getElementById('addrGo').onclick=runAddr;
 addrRad.onchange=()=>{ if(addrIn.place) runAddr(); };
 
@@ -416,7 +584,7 @@ function getGpsOnce(){ return new Promise((ok,no)=>{ if(lastFix && watchId!==nul
 // ---- (3) Routing via OSRM, bridges within 100 m of the route ----
 const fromIn=document.getElementById('fromIn'), toIn=document.getElementById('toIn'), routeMsg=document.getElementById('routeMsg'), routeList=document.getElementById('routeList');
 autocomplete(fromIn, document.getElementById('fromAc'));
-autocomplete(toIn, document.getElementById('toAc'), ()=>runRoute());
+autocomplete(toIn, document.getElementById('toAc'), ()=>runRoute()); fromIn._rerun=toIn._rerun=()=>runRoute();
 document.querySelectorAll('input[name=rfrom]').forEach(r=>r.onchange=()=>{ document.getElementById('fromWrap').style.display = document.querySelector('input[name=rfrom]:checked').value==='addr'?'block':'none'; });
 let routeLayer=null;
 const ROUTE_BUF=100; // meters
@@ -539,7 +707,7 @@ async function runRoute(){
   layers.push(L.polyline(shown.coords,{color:'#fff',weight:10,opacity:.7}));
   const line=L.polyline(shown.coords,{color: safe?'#1a73e8':'#d93025',weight:6,opacity:.85}); layers.push(line);
   layers.push(L.circleMarker([A.lat,A.lon],{radius:7,color:'#fff',weight:3,fillColor:'#0b8043',fillOpacity:1}).bindTooltip('Start'));
-  layers.push(L.marker([B.lat,B.lon],{title:'Destination'}).bindPopup(`<b>${esc(B.label||'Destination')}</b>`));
+  layers.push(addrMarker(B,toIn,'Destination'));
   (fast&&fast.bad||[]).forEach(x=>excluded.set(x.b.id,x.b));
   const avoided=[...excluded.values()].filter(b=>!(shown.bad||[]).some(x=>x.b.id===b.id) && !shown.near.some(x=>x.b.id===b.id&&x.d<=CONFLICT_BUF));
   avoided.forEach(b=>layers.push(L.circleMarker([b.lat,b.lon],{radius:13,color:'#d93025',weight:3,fill:false}).bindTooltip('Avoided: '+esc(b.fac))));
