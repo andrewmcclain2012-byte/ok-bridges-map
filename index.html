@@ -174,7 +174,7 @@
     <div class="list" id="routeList"></div>
   </div>
 </div>
-<div id="about"><button id="srcBtn" type="button" aria-expanded="false" aria-controls="aboutText" title="Data sources and credits" onclick="var a=document.getElementById('about');a.classList.toggle('open');this.setAttribute('aria-expanded',a.classList.contains('open'));this.textContent=a.classList.contains('open')?'\u2715 Sources':'\u24d8 Sources';">&#9432; Sources</button><div id="aboutText">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org, live layer + statewide file copy, incl. road centerline address ranges); local 911 points from INCOG, Canadian, Latimer &amp; Carter counties, Edmond, Moore, Norman &amp; Guymon; Oklahoma, Canadian, Cleveland, Washington, Hughes/Okfuskee/Seminole &amp; Atoka parcels, Bartlesville; Microsoft building footprints; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div></div>
+<div id="about"><button id="srcBtn" type="button" aria-expanded="false" aria-controls="aboutText" title="Data sources and credits" onclick="var a=document.getElementById('about');a.classList.toggle('open');this.setAttribute('aria-expanded',a.classList.contains('open'));this.textContent=a.classList.contains('open')?'\u2715 Sources':'\u24d8 Sources';">&#9432; Sources</button><div id="aboutText">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org, live layer + statewide file copy, incl. road centerline address ranges); local 911 points from INCOG, Canadian, Latimer &amp; Carter counties, Edmond, Moore, Norman &amp; Guymon; Oklahoma City address points (gis.okc.gov); Oklahoma, Canadian, Cleveland, Washington, Hughes/Okfuskee/Seminole &amp; Atoka parcels, Bartlesville; Microsoft building footprints; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
@@ -310,7 +310,7 @@ function showCard(k){ for (const [n,id] of Object.entries(cards)){ const c=docum
 document.getElementById('btnAddr').onclick = () => showCard('Addr');
 document.getElementById('btnRoute').onclick = () => showCard('Route');
 
-// ================= v10: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
+// ================= v11: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
 // Providers (all free, no keys): Oklahoma NG911 address points (county 911 rooftop/structure points, ArcGIS Online public layer),
 // US Census geocoder (interpolated along street ranges), OpenStreetMap Nominatim, Photon (komoot).
 // v7 adds local rooftop sources: INCOG 911 address points (Tulsa, Rogers, Wagoner, Creek, Osage), Ardmore/Carter County 911 points,
@@ -321,6 +321,7 @@ document.getElementById('btnRoute').onclick = () => showCard('Route');
 // Cleveland County assessor parcels.
 // v10: statewide NG911 point file now covers all 77 counties (both okmaps layers + the older standardized address layer, merged),
 // estimates along NG911 road centerlines using their official address ranges (rural roads the Census lacks), 'United States Highway' = US.
+// v11: answers as soon as a confident 911 match in the typed town is in (no waiting on slow outside services), cached town lookups.
 const OK_BB={w:-103.01,s:33.6,e:-94.42,n:37.01};
 function inOK(lat,lon){ return isFinite(lat)&&isFinite(lon)&&lat>=OK_BB.s&&lat<=OK_BB.n&&lon>=OK_BB.w&&lon<=OK_BB.e; }
 const NG911_URL='https://services.arcgis.com/3xOwF6p0r7IHIjfn/ArcGIS/rest/services/NG911_Address_Points/FeatureServer/0/query';
@@ -489,7 +490,8 @@ const LOCAL_SRC=[
    rec:a=>{ const st=[a.DIRECTION,a.STREET_NAME,a.STREET_SUFFIX].map(x=>(x||'').trim()).filter(Boolean); const r=splitLoc(+a.HOUSE_NUM||null,'1 '+st.join(' '),(a.LOCATIONCITY||'').trim()); r.pd=(a.DIRECTION||'').trim()||null; return r; }},
   {src:'City of Norman address point',url:'https://services.arcgis.com/rt1leD4Hj3sLGHNL/arcgis/rest/services/Address_Points/FeatureServer/1',nf:'Address',sf:'Street',bonus:25,
    of:'Address,PreDir,PreType,Street,StreetType,SufDir,City,PostComm,Zipcode',rec:a=>ngRec(a,{n:'Address',pd:'PreDir',pt:'PreType',st:'Street',ty:'StreetType',sd:'SufDir',towns:['City','PostComm'],zip:'Zipcode'}),
-   cf:c=>ngLike(c,['City','PostComm'])}
+   cf:c=>ngLike(c,['City','PostComm'])},
+  {src:'OpenStreetMap',bundle:true,osmfile:true,nf:'address',sf:'street',bonus:0,rec:a=>{ const r=splitLoc(a.address,'1 '+a.street,a.city); r.zip=a.zipcode||null; return r; },cf:c=>c}
 ];
 // ---- provider 1d: statewide NG911 address points copied from okmaps.org (all counties; the live layer lacks some), served from this site, sharded by house number ----
 function bundleKey(n){ return n<1000?'a'+Math.floor(n/5):n<10000?'b'+Math.floor(n/10):n<100000?'c'+Math.floor(n/100):'d'+Math.floor(n/1000); }
@@ -512,7 +514,7 @@ async function arcRecs(L,where,n){ const p={where,outFields:L.of+(L.oid?','+L.oi
 // parcel -> main building: Microsoft building footprints (Esri-hosted public layer); snaps a lot-center pin onto the house
 const MSBFP_URL='https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/MSBFP2/FeatureServer/0/query';
 function ringsHas(rings,x,y){ let ins=false; for(const r of rings) for(let i=0,j=r.length-1;i<r.length;j=i++){ const xi=r[i][0],yi=r[i][1],xj=r[j][0],yj=r[j][1]; if((yi>y)!==(yj>y)&&x<(xj-xi)*(y-yi)/(yj-yi)+xi) ins=!ins; } return ins; }
-function ringStats(r){ let a=0,cx=0,cy=0; for(let i=0,j=r.length-1;i<r.length;j=i++){ const f=r[j][0]*r[i][1]-r[i][0]*r[j][1]; a+=f; cx+=(r[j][0]+r[i][0])*f; cy+=(r[j][1]+r[i][1])*f; } return a?{a:Math.abs(a/2),x:cx/(3*a),y:cy/(3*a)}:null; }
+function ringStats(r){ let a=0,cx=0,cy=0; const ox=r[0][0],oy=r[0][1]; for(let i=0,j=r.length-1;i<r.length;j=i++){ const xj=r[j][0]-ox,yj=r[j][1]-oy,xi=r[i][0]-ox,yi=r[i][1]-oy, f=xj*yi-xi*yj; a+=f; cx+=(xj+xi)*f; cy+=(yj+yi)*f; } return a?{a:Math.abs(a/2),x:ox+cx/(3*a),y:oy+cy/(3*a)}:null; }
 async function parcelPolys(L,oids){ if(!oids.length) return {}; const p={objectIds:oids.join(','),outFields:L.oid,returnGeometry:'true',outSR:'4326',geometryPrecision:'6',maxAllowableOffset:'0.000005',f:'json'};
   const j=await (await fetch(L.url+'/query?'+new URLSearchParams(p))).json(); const m={}; (j.features||[]).forEach(f=>{ if(f.geometry&&f.geometry.rings) m[f.attributes[L.oid]]=f.geometry.rings; }); return m; }
 async function mainBuilding(rings){
@@ -523,6 +525,14 @@ async function mainBuilding(rings){
   const bs=(j.features||[]).map(f=>f.geometry&&f.geometry.rings&&ringStats(f.geometry.rings[0])).filter(st=>st&&ringsHas(rings,st.x,st.y)).sort((a,b)=>b.a-a.a);
   if(!bs.length||(bs.length>4&&bs[0].a<2*bs[1].a)) return null; // no building, or many similar buildings (apartments, mobile-home park): keep the lot center
   return Object.assign(bs[0],{n:bs.length}); }
+const UNIT_CACHE={}; function unitShard(k){ if(!UNIT_CACHE[k]) UNIT_CACHE[k]=fetch('u11/'+k+'.json').then(r=>r.ok?r.json():null).catch(()=>null); return UNIT_CACHE[k]; }
+async function unitRecs(L,P,n,keep){ const bs=await bundleBands(P), k=bundleKey(n), out=[]; for(const j of await Promise.all(bs.map(b=>unitShard(k+'_'+b)))){ if(!j) continue;
+    for(const r of j.r){ if(r[0]!==n) continue; const [pd,pt,st,ty,sd]=j.s[r[1]].split('|'), [pc,ci,ms]=j.t[r[2]].split('|'); const a={address:r[0],predir:pd,pretype:pt,street:st,streettype:ty,sufdir:sd,postcomm:pc,city:ci,msagcomm:ms,zipcode:j.z[r[3]]}; if(!keep(a)) continue;
+      out.push(Object.assign({lat:r[4]/1e5,lon:r[5]/1e5,_oid:null,unit:j.u[r[6]]},L.rec(a))); } } return out; }
+const OSMF_CACHE={}; function osmShard(k){ if(!OSMF_CACHE[k]) OSMF_CACHE[k]=fetch('o11/'+k+'.json').then(r=>r.ok?r.json():null).catch(()=>null); return OSMF_CACHE[k]; }
+async function osmRecs(L,P,lo,hi,keep){ const ks=[]; for(let n=lo;n<=hi;n++){ const k=bundleKey(n); if(!ks.includes(k)) ks.push(k); if(ks.length>=12) break; } const out=[];
+  for(const j of await Promise.all(ks.map(osmShard))){ if(!j) continue; for(const r of j.r){ if(r[0]<lo||r[0]>hi) continue; const a={address:r[0],street:j.s[r[1]],city:j.t[r[2]],postcomm:'',msagcomm:'',zipcode:j.z[r[3]]}; if(!keep(a)) continue; out.push(Object.assign({lat:r[4]/1e5,lon:r[5]/1e5,_oid:null},L.rec(a))); } }
+  return out; }
 async function localGeo(L,P){
   if(!P.num||!P.likeKey) return [];
   const c=P.city&&P.city.replace(/[^A-Z ]/g,''), out=[], seen=new Set();
@@ -532,8 +542,12 @@ async function localGeo(L,P){
   const add=(recs,fz)=>{ for(const a of recs){ if(+a.num!==+P.num) continue; const sim=judge(a,fz); if(sim==null) continue; const id=a.lat.toFixed(5)+a.lon.toFixed(5); if(seen.has(id)) continue; seen.add(id);
       out.push({lat:a.lat,lon:a.lon,label:lbl(a,P.num),quality:'exact',src:L.src,bonus:a._units>1?Math.min(L.bonus,15):L.bonus,cityOk:cityHit(P,a.towns),zip:zp(a),sim:sim-(fz?0.1:0),fuzzy:fz,_oid:a._oid}); } };
   const inSt=a=>String(a[L.sf]||'').toUpperCase().includes(P.likeKey);
-  add(await (L.bundle?bundleRecs(L,P,+P.num,+P.num,inSt):arcRecs(L,L.where?L.where(P):`${L.nf}=${+P.num} AND ${L.sf} LIKE '%${P.likeKey}%'`,50)),false);
-  if(!out.some(o=>o.cityOk!==false)&&c&&/^[A-Z]{4,}$/.test(P.likeKey)&&(L.fzWhere||L.cf)) add(await (L.bundle?bundleRecs(L,P,+P.num,+P.num,a=>[a.postcomm,a.city,a.msagcomm].includes(c)):arcRecs(L,L.fzWhere?L.fzWhere(P,c):`${L.nf}=${+P.num} AND ${L.cf(c)}`,300)),true);
+  add(await (L.bundle?(L.osmfile?osmRecs:bundleRecs)(L,P,+P.num,+P.num,inSt):arcRecs(L,L.where?L.where(P):`${L.nf}=${+P.num} AND ${L.sf} LIKE '%${P.likeKey}%'`,50)),false);
+  if(L.bundle&&!L.osmfile&&P.unit){ const U=String(P.unit).toUpperCase().replace(/[\s\-#]/g,''), m=(await unitRecs(L,P,+P.num,inSt).catch(()=>[])).map(a=>Object.assign(a,{_sim:judge(a,false)})).filter(a=>a._sim!=null&&cityHit(P,a.towns)!==false);
+    const hit=m.filter(a=>a.unit===U), bl=/^[A-Z]\d+$/.test(U)?m.filter(a=>a.unit[0]===U[0]&&/^[A-Z]\d+$/.test(a.unit)):[], g=hit.length?hit:bl;
+    if(g.length){ const la=g.reduce((s,a)=>s+a.lat,0)/g.length, lo=g.reduce((s,a)=>s+a.lon,0)/g.length;
+      if(g.every(a=>map.distance([a.lat,a.lon],[la,lo])<80)) out.unshift({lat:la,lon:lo,label:lbl(g[0],P.num).replace(/^([^,]+)/,hit.length?'$1 #'+U:'$1, building '+U[0]),quality:'exact',src:L.src,bonus:L.bonus+(hit.length?25:12),cityOk:cityHit(P,g[0].towns),zip:zp(g[0]),sim:g[0]._sim,fuzzy:false,_oid:null,unitHit:hit.length?'unit':'building'}); } }
+  if(!out.some(o=>o.cityOk!==false)&&c&&/^[A-Z]{4,}$/.test(P.likeKey)&&(L.fzWhere||L.cf)) add(await (L.bundle?(L.osmfile?osmRecs:bundleRecs)(L,P,+P.num,+P.num,a=>[a.postcomm,a.city,a.msagcomm].includes(c)):arcRecs(L,L.fzWhere?L.fzWhere(P,c):`${L.nf}=${+P.num} AND ${L.cf(c)}`,300)),true);
   if(L.parcel&&L.oid&&out.length){ // move the pin from the lot center onto the main building
     const top=out.slice(0,3); const res=await withTimeout((async()=>{ const polys=await parcelPolys(L,top.map(o=>o._oid).filter(x=>x!=null));
         return Promise.all(top.map(async o=>{ const r=polys[o._oid]; return r?await mainBuilding(r).catch(()=>null):null; })); })().catch(()=>null),3000);
@@ -541,7 +555,7 @@ async function localGeo(L,P){
   if(!out.some(o=>o.cityOk!==false)){ // no exact record: estimate between neighbouring numbers on the same street in this source
     const n=+P.num; let w=null;
     if(L.nf&&!L.where) w=`${L.nf}>=${n-40} AND ${L.nf}<=${n+40} AND ${L.sf} LIKE '%${P.likeKey}%'`; else if(L.nbWhere&&n>=100) w=L.nbWhere(P,String(n).slice(0,-2));
-    if(w){ const recs=(await (L.bundle?bundleRecs(L,P,n-40,n+40,inSt):arcRecs(L,w,200)).catch(()=>[])).filter(a=>a.num!=null&&+a.num!==n&&Math.abs(+a.num-n)<=40);
+    if(w&&!L.osmfile){ const recs=(await (L.bundle?(L.osmfile?osmRecs:bundleRecs)(L,P,n-40,n+40,inSt):arcRecs(L,w,200)).catch(()=>[])).filter(a=>a.num!=null&&+a.num!==n&&Math.abs(+a.num-n)<=40);
       const groups={}; recs.forEach(a=>{ const sim=judge(a,false); if(sim==null) return; const k=a.toks.join(' ')+'|'+(a.town||''); (groups[k]=groups[k]||[]).push(Object.assign(a,{_sim:sim})); });
       for(const g of Object.values(groups)){
         const pick=arr=>({lo:arr.filter(a=>+a.num<n).sort((p,q)=>q.num-p.num)[0],hi:arr.filter(a=>+a.num>n).sort((p,q)=>p.num-q.num)[0]});
@@ -620,8 +634,9 @@ function photonCand(P,f){ const a=f.properties; const {l1,l2}=photonLabel(f); le
   if(P.num){ if(a.housenumber&&a.housenumber.split(/[;,\- ]/)[0]===P.num&&psim>=0.5) q='exact'; else if(a.housenumber) return null; else if((a.type==='street'||a.osm_key==='highway')&&psim>=0.5) q='street'; else if(a.type==='street'||a.osm_key==='highway') return null; else if(/city|town|village|district|locality|county/.test(a.type||'')||a.osm_key==='place') q='town'; else return null; }
   else q='place';
   return {lat:f.geometry.coordinates[1],lon:f.geometry.coordinates[0],label:l1+(l2?', '+l2:''),l1,l2,quality:q,src:'OpenStreetMap (Photon)',cityOk:cityHit(P,[a.city,a.town,a.village,a.district,a.locality,a.name]),zip:a.postcode||null,sim:psim,ext:a.extent||null}; }
-async function photonGeo(P){ const out=(await photonRaw(okTerm(P))).map(f=>photonCand(P,f)).filter(Boolean);
-  if(P.city&&P.num){ (await photonRaw(P.city+', Oklahoma','&osm_tag=place')).forEach(f=>{ if(/^(state|country)$/.test((f.properties||{}).type||'')||(((f.properties||{}).type==='county')!==/ COUNTY$/.test(P.city))) return; const c=photonCand(Object.assign({},P,{num:null}),f); if(c&&c.cityOk!==false){ c.quality='town'; c.label=c.label; out.push(c);} }); }
+const PH_TOWN={}; function photonTown(c){ if(!PH_TOWN[c]) PH_TOWN[c]=photonRaw(c+', Oklahoma','&osm_tag=place').catch(()=>{ delete PH_TOWN[c]; return []; }); return PH_TOWN[c]; }
+async function photonGeo(P){ const tw=(P.city&&P.num)?photonTown(P.city):null; const out=(await photonRaw(okTerm(P))).map(f=>photonCand(P,f)).filter(Boolean);
+  if(tw){ (await tw).forEach(f=>{ if(/^(state|country)$/.test((f.properties||{}).type||'')||(((f.properties||{}).type==='county')!==/ COUNTY$/.test(P.city))) return; const c=photonCand(Object.assign({},P,{num:null}),f); if(c&&c.cityOk!==false){ c.quality='town'; c.label=c.label; out.push(c);} }); }
   return out; }
 // Type-ahead suggestions: 911 address points first (when a house number is typed), then Photon
 async function suggest(term){
@@ -662,15 +677,17 @@ async function geocode(term){
   const res=fns.map(()=>null);
   const provs=fns.map((f,i)=>{ const S=f.src; if(S&&S._skipUntil>Date.now()) return Promise.resolve(res[i]=[]); // a source that keeps failing is rested for a minute
     const run=(P.ordLike&&(f.local||f===ng911Geo))?Promise.all([f(P),f(Object.assign({},P,{likeKey:P.ordLike}))]).then(([a,b])=>(a||[]).concat(b||[])):f(P);
-   return withTimeout(run.then(r=>{ if(S) S._fails=0; return r; },()=>{ if(S&&(S._fails=(S._fails||0)+1)>=2) S._skipUntil=Date.now()+60000; return []; }),f.local?6000:10000)
+   return withTimeout(run.then(r=>{ if(S) S._fails=0; return r; },()=>{ if(S&&(S._fails=(S._fails||0)+1)>=2) S._skipUntil=Date.now()+60000; return []; }),f.local?5000:7000)
       .then(r=>{ if(r===null&&S&&(S._fails=(S._fails||0)+1)>=2) S._skipUntil=Date.now()+60000; return res[i]=r||[]; }); });
   await new Promise(ok=>{ let n=0; provs.forEach(p=>p.then(()=>{ if(++n===provs.length) ok(); })); const t0=Date.now();
     const iv=setInterval(()=>{ if(n===provs.length) return clearInterval(iv); // don't wait on slow stragglers once an authoritative exact match in the right town is in
+      const flat=res.filter(Boolean).flat().filter(c=>c&&c.quality==='exact'&&c.cityOk!==false&&(c.bonus>=18||/911 address point/.test(c.src||''))), conf=flat.find(c=>c.cityOk===true&&!c.fuzzy&&(c.sim||0)>=0.9&&c.bonus>=25&&(!P.zip||!c.zip||String(c.zip).slice(0,5)===P.zip))&&!flat.some((o,i)=>flat.some(c=>map.distance([c.lat,c.lon],[o.lat,o.lon])>150)); // all exact matches agree
+      if(conf&&Date.now()-t0>900){ clearInterval(iv); ok(); return; }
       if(Date.now()-t0>2500&&res.some((r,i)=>r&&r.some(c=>c.quality==='exact'&&c.cityOk!==false&&(c.bonus>=18||/911 address point/.test(c.src||''))))&&res[3]){ clearInterval(iv); ok(); } },150); });
   let all=res.filter(Boolean).flat().filter(c=>c&&inOK(c.lat,c.lon));
   if(P.predir) all.forEach(c=>{ if(/OpenStreetMap|Census/.test(c.src)&&c.quality!=='town'){ const t=gTok(c.label.split(',').find(x=>/[A-Za-z]/.test(x))||'').filter(w=>!/^\d+$/.test(w)); if(G_DIRS[t[0]]===t[0]&&t.length>1&&t[0]!==P.predir) c.dirBad=true; } });
   const typeClash=c=>{ if(!P.type) return false; const t=gTok((c.label||'').split(',').find(x=>/[A-Za-z]/.test(x))||'').filter(w=>G_TYPEWORDS.has(w)); return t.length>0&&t.indexOf(P.type)<0; };
-  if(P.city){ const tw=all.filter(c=>c.quality==='town'&&c.cityOk===true), twn=tw.find(c=>c.ext)||tw[0]; if(twn) all.forEach(c=>{ let d=map.distance([c.lat,c.lon],[twn.lat,twn.lon]); if(twn.ext){ const [w,n,e,s]=twn.ext; const la=Math.min(Math.max(c.lat,Math.min(s,n)),Math.max(s,n)), lo=Math.min(Math.max(c.lon,Math.min(w,e)),Math.max(w,e)); d=Math.min(d,map.distance([c.lat,c.lon],[la,lo])+15000); }
+  if(P.city){ const tw=all.filter(c=>c.quality==='town'&&c.cityOk===true), nmEq=c=>String(c.label||'').split(',')[0].trim().toUpperCase()===P.city, twn=tw.find(c=>c.ext&&nmEq(c))||tw.find(nmEq)||tw.find(c=>c.ext)||tw[0]; if(twn) all.forEach(c=>{ let d=map.distance([c.lat,c.lon],[twn.lat,twn.lon]); if(twn.ext){ const [w,n,e,s]=twn.ext; const la=Math.min(Math.max(c.lat,Math.min(s,n)),Math.max(s,n)), lo=Math.min(Math.max(c.lon,Math.min(w,e)),Math.max(w,e)); d=Math.min(d,map.distance([c.lat,c.lon],[la,lo])+15000); }
     if(c.quality!=='town'&&c.cityOk!==false&&d>30000) c.cityOk=false;
     else if(c.cityOk===false&&(c.quality==='exact'||c.quality==='interp')&&d<15000&&!typeClash(c)) c.cityOk=undefined; // nearby postal/911 town name; but not 'Ash Ln, Norman' for 'Ash St, Noble'
     if(twn.ext&&/OpenStreetMap|Census/.test(c.src)&&c.quality!=='town'&&+P.num<5000&&P.type!=='ROAD'&&!/ (Rd|Road)\b/i.test(c.label)){ const [w,n,e,s]=twn.ext; const la=Math.min(Math.max(c.lat,Math.min(s,n)),Math.max(s,n)), lo=Math.min(Math.max(c.lon,Math.min(w,e)),Math.max(w,e));
@@ -681,12 +698,16 @@ async function geocode(term){
   const bsrc=x=>String(x||'').replace(/ \(main building\)$/,''); all.forEach(c=>{ const srcs=new Set(all.filter(o=>o!==c&&bsrc(o.src)!==bsrc(c.src)&&(o.quality==='exact'||o.quality==='interp')&&map.distance([c.lat,c.lon],[o.lat,o.lon])<150).map(o=>bsrc(o.src))); c.score+=Math.min(2,srcs.size)*6; if(c.quality==='exact'||c.quality==='interp') c.score+=Math.min(2,new Set(all.filter(o=>o.src!==c.src&&o.quality==='street'&&map.distance([c.lat,c.lon],[o.lat,o.lon])<250).map(o=>o.src)).size)*2; });
   { const bad=c=>c.cityOk===false&&!(P.zip&&String(c.label||'').indexOf(P.zip)>=0); const anyOk=all.some(c=>c.cityOk===true);
     all.sort((a,b)=>(anyOk?(bad(a)-bad(b)):0)||(b.score-a.score)); } // a result in the wrong town never beats one in the typed town
-  const kept=[]; for(const c of all){ const k=kept.find(o=>map.distance([o.lat,o.lon],[c.lat,c.lon])<(c.quality==='town'||o.quality==='town'?1500:(c.quality==='exact'&&o.quality==='exact'?300:60))); if(k){ if(!k.also.includes(c.src)&&k.src!==c.src) k.also.push(c.src); continue; } c.also=[]; kept.push(c); }
+  const DIRW=/^(North|South|East|West|Northeast|Northwest|Southeast|Southwest)$/, stParts=c=>{ const w=String(c.label||'').split(',')[0].split(/\s+/).slice(1); return {d:w.filter(x=>DIRW.test(x)).join(' '),core:w.filter(x=>!DIRW.test(x)).join(' ').toUpperCase()}; };
+  const noDir=!P.predir&&!P.sufdir, dirTwin=(a,b)=>{ if(!noDir||a.quality!=='exact'||b.quality!=='exact') return false; const x=stParts(a),y=stParts(b); return x.core===y.core&&x.d!==y.d; };
+  const kept=[]; for(const c of all){ const k=kept.find(o=>map.distance([o.lat,o.lon],[c.lat,c.lon])<(c.quality==='town'||o.quality==='town'?1500:(c.quality==='exact'&&o.quality==='exact'?(dirTwin(o,c)?40:300):60))); if(k){ if(!k.also.includes(c.src)&&k.src!==c.src) k.also.push(c.src); continue; } c.also=[]; kept.push(c); }
   if(!kept.length) return null;
   const top=kept[0], strong=q=>q==='exact'||q==='interp'||q==='place';
   const pruned=kept.filter((c,i)=>i===0||!(top.cityOk===true&&strong(top.quality)&&c.cityOk===false)&&!((top.quality==='exact'||top.quality==='interp')&&c.quality==='town'));
   kept.length=0; kept.push(...pruned);
-  const best=Object.assign({},kept[0]); best.term=term; best.baseLabel=best.label; best.cands=kept.slice(0,5); best.parsed=P;
+  const twins=kept.filter((c,i)=>i>0&&c.cityOk!==false&&dirTwin(kept[0],c)&&(c.bonus>=18||/911 address point/.test(c.src||''))&&c.score>kept[0].score-60);
+  if(twins.length){ const rest=kept.filter(c=>c!==kept[0]&&!twins.includes(c)); kept.length=1; kept.push(...twins,...rest); }
+  const best=Object.assign({},kept[0]); best.term=term; best.baseLabel=best.label; best.cands=kept.slice(0,5); best.parsed=P; if(twins.length) best.ambDir=[kept[0],...twins].map(c=>stParts(c).d||'no direction');
   return best;
 }
 // ---- showing results: candidate pick list under an input, quality-labelled draggable pins ----
@@ -698,9 +719,9 @@ function showCands(inp,p){
   let h=`<div class="gc-using">Using: <b>${esc(p.label)}</b> ${qBadge(p.quality)}<small>${esc(p.src||'')}${p.also&&p.also.length?' · confirmed by '+esc(p.also.join(', ')):''}</small></div>`;
   if(p.quality==='corrected') h+=`<a href="#" class="gc-forget">Forget my corrected pin for this address</a>`;
   else if(p.quality!=='exact') h+=`<div class="gc-hint">Not exact. If the pin is in the wrong spot, drag it to the right place and it will be remembered.</div>`;
-  const multiTown=p.parsed&&!p.parsed.city&&!p.parsed.zip&&others.some(c=>c.quality==='exact');
-  if(others.length){ h+=`<div class="gc-head">${multiTown?'This address exists in more than one town. Pick the right one (or add the town):':(p.quality==='exact'&&others.every(c=>Q_RANK[c.quality]<Q_RANK.exact)?'Other possible matches':'Did you mean one of these?')}</div>`;
-    const sure=p.quality==='exact'&&p.cityOk===true; if(sure) h=h.replace(/<div class="gc-head">.*?<\/div>$/,'')+`<details><summary>${others.length} other possible match${others.length>1?'es':''}</summary>`;
+  const multiTown=p.parsed&&!p.parsed.city&&!p.parsed.zip&&others.some(c=>c.quality==='exact'), ambDir=p.ambDir&&p.ambDir.length>1;
+  if(others.length){ h+=`<div class="gc-head">${ambDir?'This number is on more than one side of town ('+esc(p.ambDir.join(' / '))+'). Check that the pin is the one you mean, or pick the other:':multiTown?'This address exists in more than one town. Pick the right one (or add the town):':(p.quality==='exact'&&others.every(c=>Q_RANK[c.quality]<Q_RANK.exact)?'Other possible matches':'Did you mean one of these?')}</div>`;
+    const sure=p.quality==='exact'&&p.cityOk===true&&!ambDir; if(sure) h=h.replace(/<div class="gc-head">.*?<\/div>$/,'')+`<details><summary>${others.length} other possible match${others.length>1?'es':''}</summary>`;
     others.slice(0,4).forEach((c,i)=>{ h+=`<div class="gc-item" data-i="${(p.cands||[]).indexOf(c)}"><b>${esc(c.label)}</b> ${qBadge(c.quality)}<small>${(map.distance([c.lat,c.lon],[p.lat,p.lon])/MI).toFixed(1)} mi from the pin · ${esc(c.src||'')}</small></div>`; }); if(sure) h+='</details>'; }
   b.innerHTML=h; b.style.display='block';
   b.querySelectorAll('.gc-item').forEach(d=>d.onclick=()=>{ const c=p.cands[+d.dataset.i]; inp.place=Object.assign({},c,{term:p.term,baseLabel:c.label,cands:p.cands,parsed:p.parsed}); showCands(inp,inp.place); inp._rerun&&inp._rerun(); });
