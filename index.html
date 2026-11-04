@@ -38,6 +38,12 @@
   .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:bold;color:#000;}
   .cl{border-radius:50%;color:#fff;font-weight:bold;display:flex;align-items:center;justify-content:center;border:3px solid rgba(255,255,255,.8);box-shadow:0 1px 4px rgba(0,0,0,.4);font-size:12px;}
   #about{position:absolute;z-index:1000;bottom:22px;left:10px;font-size:11px;background:rgba(255,255,255,.9);padding:4px 8px;border-radius:6px;max-width:60%;}
+  #about:not(.open){background:none;padding:0;display:flex;flex-wrap:wrap;align-items:center;gap:6px;}
+  #about:not(.open) .readout{margin:0;}
+  #aboutText{display:none;} #about.open #aboutText{display:block;margin-top:4px;}
+  #srcBtn{order:2;font-size:11px;background:rgba(255,255,255,.92);border:1px solid #bbb;border-radius:10px;padding:2px 8px;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.3);color:#333;}
+  #about.open #srcBtn{float:right;margin:0 0 2px 6px;}
+  @media (max-width:600px){ #about{bottom:22px;} .readout{font-size:10px !important;padding:2px 6px;} }
   @media (max-width:600px){ .legend{display:none;} .legend.show{display:block;} #about{max-width:90%;bottom:18px;} .panel{width:auto;right:10px;} }
   /* --- v2: address search, GPS tracking, routing --- */
   .tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
@@ -168,7 +174,7 @@
     <div class="list" id="routeList"></div>
   </div>
 </div>
-<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org, live layer + statewide file copy, incl. road centerline address ranges); local 911 points from INCOG, Canadian, Latimer &amp; Carter counties, Edmond, Moore, Norman &amp; Guymon; Oklahoma, Canadian, Cleveland, Washington, Hughes/Okfuskee/Seminole &amp; Atoka parcels, Bartlesville; Microsoft building footprints; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
+<div id="about"><button id="srcBtn" type="button" aria-expanded="false" aria-controls="aboutText" title="Data sources and credits" onclick="var a=document.getElementById('about');a.classList.toggle('open');this.setAttribute('aria-expanded',a.classList.contains('open'));this.textContent=a.classList.contains('open')?'\u2715 Sources':'\u24d8 Sources';">&#9432; Sources</button><div id="aboutText">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org, live layer + statewide file copy, incl. road centerline address ranges); local 911 points from INCOG, Canadian, Latimer &amp; Carter counties, Edmond, Moore, Norman &amp; Guymon; Oklahoma, Canadian, Cleveland, Washington, Hughes/Okfuskee/Seminole &amp; Atoka parcels, Bartlesville; Microsoft building footprints; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
