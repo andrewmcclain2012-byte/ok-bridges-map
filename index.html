@@ -168,7 +168,7 @@
     <div class="list" id="routeList"></div>
   </div>
 </div>
-<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org, live layer + statewide file copy); local 911 points from INCOG, Canadian, Latimer &amp; Carter counties, Edmond, Moore, Norman &amp; Guymon; Oklahoma, Canadian, Cleveland, Washington, Hughes/Okfuskee/Seminole &amp; Atoka parcels, Bartlesville; Microsoft building footprints; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
+<div id="about">Data: FHWA National Bridge Inventory 2025 (Oklahoma) + ODOT bridge inventory (posted tons, updated Nov 2, 2026). Addresses: Oklahoma NG911 address points (okmaps.org, live layer + statewide file copy, incl. road centerline address ranges); local 911 points from INCOG, Canadian, Latimer &amp; Carter counties, Edmond, Moore, Norman &amp; Guymon; Oklahoma, Canadian, Cleveland, Washington, Hughes/Okfuskee/Seminole &amp; Atoka parcels, Bartlesville; Microsoft building footprints; US Census Geocoder, OpenStreetMap/Nominatim &amp; Photon · Routing: Valhalla (FOSSGIS) / OSRM. Always obey the sign at the bridge.</div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
@@ -304,7 +304,7 @@ function showCard(k){ for (const [n,id] of Object.entries(cards)){ const c=docum
 document.getElementById('btnAddr').onclick = () => showCard('Addr');
 document.getElementById('btnRoute').onclick = () => showCard('Route');
 
-// ================= v9: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
+// ================= v10: address lookup (Oklahoma-only, parallel providers, scored candidates) =================
 // Providers (all free, no keys): Oklahoma NG911 address points (county 911 rooftop/structure points, ArcGIS Online public layer),
 // US Census geocoder (interpolated along street ranges), OpenStreetMap Nominatim, Photon (komoot).
 // v7 adds local rooftop sources: INCOG 911 address points (Tulsa, Rogers, Wagoner, Creek, Osage), Ardmore/Carter County 911 points,
@@ -313,6 +313,8 @@ document.getElementById('btnRoute').onclick = () => showCard('Route');
 // parcel pins snapped to the main building (Microsoft footprints), neighbour-number estimates; unit stripping, typo tolerance, town-name splitting.
 // v9: Oklahoma NG911 address points for counties missing from the live layer (okmaps.org statewide file, copied next to this page in addr/),
 // Cleveland County assessor parcels.
+// v10: statewide NG911 point file now covers all 77 counties (both okmaps layers + the older standardized address layer, merged),
+// estimates along NG911 road centerlines using their official address ranges (rural roads the Census lacks), 'United States Highway' = US.
 const OK_BB={w:-103.01,s:33.6,e:-94.42,n:37.01};
 function inOK(lat,lon){ return isFinite(lat)&&isFinite(lon)&&lat>=OK_BB.s&&lat<=OK_BB.n&&lon>=OK_BB.w&&lon<=OK_BB.e; }
 const NG911_URL='https://services.arcgis.com/3xOwF6p0r7IHIjfn/ArcGIS/rest/services/NG911_Address_Points/FeatureServer/0/query';
@@ -339,7 +341,7 @@ const G_ORD_SIG={}; Object.keys(G_ORD).forEach(k=>{ G_ORD_SIG[k.split('').sort()
 function ordSwap(w){ if(w.length<5||/[^A-Z]/.test(w)) return null; const k=G_ORD_SIG[w.split('').sort().join('')]; return k&&k!==w&&dlev(w,k)===1?G_ORD[k]:null; }
 function gTok(s){ // uppercase tokens with common abbreviations expanded
   let t=(s||'').toUpperCase().replace(/\bOK[- ](?=\d)/g,'STATE HIGHWAY ').replace(/\bSH[- ]?(?=\d)/g,'STATE HIGHWAY ').replace(/\bU\.?S\.?[- ](?=\d)/g,'US HIGHWAY ')
-    .replace(/\bC\.?R\.?[- ]?(?=\d)/g,'COUNTY ROAD ').replace(/\bC\.?S\.?[- ]?(?=\d)/g,'COUNTY STREET ').replace(/[.,#]/g,' ').replace(/[^A-Z0-9 \-]/g,' ').replace(/-/g,' ');
+    .replace(/\bUNITED STATES\b/g,'US').replace(/\bC\.?R\.?[- ]?(?=\d)/g,'COUNTY ROAD ').replace(/\bC\.?S\.?[- ]?(?=\d)/g,'COUNTY STREET ').replace(/[.,#]/g,' ').replace(/[^A-Z0-9 \-]/g,' ').replace(/-/g,' ');
   return t.split(/\s+/).filter(Boolean).map(w=>G_DIRS[w]||G_TYPES[w]||G_ORD[w]||ordSwap(w)||w);
 }
 function parseAddr(term){
@@ -390,6 +392,10 @@ function coreSim(P,recToks,fz){ // how well a record's street tokens match the t
   if(sig.length){ if(!sig.every(has)) return want.filter(has).length/want.length*0.4; const rs=have.filter(w=>!G_GENERIC.has(w)&&!G_TYPEWORDS.has(w)); r=sig.length/Math.max(sig.length,rs.length||1); }
   else r=want.filter(has).length/Math.max(want.length,have.filter(w=>!G_TYPEWORDS.has(w)).length||1);
   return clsBad?r*0.5:r; }
+const G_DIRW=new Set(Object.values(G_DIRS));
+function roadTok(toks){ const w=toks.map(oN).filter(x=>!G_DIRW.has(x)&&!G_TYPEWORDS.has(x)&&!G_GENERIC.has(x)&&!G_IGN.has(x)&&x!=='INTERSTATE'); return w.find(x=>/\d/.test(x))||w.slice().sort((a,b)=>b.length-a.length)[0]||''; }
+function roadHash(t){ let h=5381; for(let i=0;i<t.length;i++) h=((h*33)^t.charCodeAt(i))>>>0; return h%256; }
+function roadKey(t,n){ return 'r'+roadHash(t)+'_'+(n<1000?'a'+Math.floor(n/250):n<10000?'b'+Math.floor(n/2500):n<100000?'c'+Math.floor(n/25000):'d'+Math.floor(n/250000)); }
 function titleCase(s){ return (s||'').toLowerCase().replace(/\b([a-z])/g,c=>c.toUpperCase()).replace(/\b(Ok|Nw|Ne|Sw|Se|Us)\b/g,x=>x.toUpperCase()).replace(/(\d)(St|Nd|Rd|Th)\b/g,(a,d,s)=>d+s.toLowerCase()); }
 function withTimeout(p,ms){ return Promise.race([p, new Promise(ok=>setTimeout(()=>ok(null),ms))]); }
 // ---- provider 1: Oklahoma NG911 address points (rooftop / structure points from county 911 offices) ----
@@ -400,7 +406,7 @@ function ngStreetToks(a){ return gTok([a.predir,a.pretype,a.street,a.streettype,
 function ngLabel(a,num){ const st=[num??a.address,a.predir,a.pretype,a.street,a.streettype,a.sufdir].map(x=>x==null?'':String(x).trim()).filter(Boolean).join(' ').replace(/\s+/g,' ');
   const town=(a.postcomm&&a.postcomm!=='N/A'?a.postcomm:null)||(a.city&&a.city!=='UNINCORPORATED'?a.city:null)||a.county||''; return titleCase(st)+', '+titleCase(town)+', OK'+(a.zipcode&&a.zipcode.trim()?' '+a.zipcode.trim():''); }
 function ngJudge(P,a,fz){ const toks=ngStreetToks(a); const rp=G_DIRS[(a.predir||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) return null; const rs=G_DIRS[(a.sufdir||'').trim().toUpperCase()]; if(P.sufdir&&rs&&rs!==P.sufdir) return null;
-  const sim=coreSim(P,toks,fz); if(sim<0.5) return null; return {sim, cityOk:cityHit(P,[a.city,a.postcomm,a.msagcomm]), zip:(a.zipcode||'').trim()||null, typeOk:(()=>{ const ty=(a.streettype||'').trim().toUpperCase(); return !P.type||!ty||(G_TYPES[ty]||ty)===P.type; })()}; }
+  const sim0=coreSim(P,toks,fz); if(sim0<0.5) return null; const sim=sim0-(P.predir&&!rp?0.08:0); return {sim, cityOk:cityHit(P,[a.city,a.postcomm,a.msagcomm]), zip:(a.zipcode||'').trim()||null, typeOk:(()=>{ const ty=(a.streettype||'').trim().toUpperCase(); return !P.type||!ty||(G_TYPES[ty]||ty)===P.type; })()}; }
 async function ng911Geo(P){
   if(!P.num||!P.key) return [];
   const like=`street LIKE '%${P.likeKey}%'`; const out=[];
@@ -479,15 +485,20 @@ const LOCAL_SRC=[
    of:'Address,PreDir,PreType,Street,StreetType,SufDir,City,PostComm,Zipcode',rec:a=>ngRec(a,{n:'Address',pd:'PreDir',pt:'PreType',st:'Street',ty:'StreetType',sd:'SufDir',towns:['City','PostComm'],zip:'Zipcode'}),
    cf:c=>ngLike(c,['City','PostComm'])}
 ];
-// ---- provider 1d: statewide NG911 address points copied from okmaps.org (counties the live layer lacks), served from this site, sharded by house number ----
-function bundleKey(n){ return n<1000?'a'+Math.floor(n/10):n<10000?'b'+Math.floor(n/25):n<100000?'c'+Math.floor(n/250):'d'+Math.floor(n/2500); }
+// ---- provider 1d: statewide NG911 address points copied from okmaps.org (all counties; the live layer lacks some), served from this site, sharded by house number ----
+function bundleKey(n){ return n<1000?'a'+Math.floor(n/5):n<10000?'b'+Math.floor(n/10):n<100000?'c'+Math.floor(n/100):'d'+Math.floor(n/1000); }
 const BUNDLE_CACHE={};
-function bundleShard(k){ if(!BUNDLE_CACHE[k]) BUNDLE_CACHE[k]=fetch('addr/'+k+'.json').then(r=>r.ok?r.json():null).catch(()=>null).then(j=>{ if(!j) delete BUNDLE_CACHE[k]; return j; }); return BUNDLE_CACHE[k]; }
-async function bundleRecs(L,lo,hi,keep){ const ks=[]; for(let n=lo;n<=hi;n++){ const k=bundleKey(n); if(!ks.includes(k)) ks.push(k); if(ks.length>12) break; }
-  const out=[]; for(const j of await Promise.all(ks.map(bundleShard))){ if(!j) continue;
+function bundleShard(k){ if(!BUNDLE_CACHE[k]) BUNDLE_CACHE[k]=fetch('a10/'+k+'.json').then(r=>r.ok?r.json():null).catch(()=>null).then(j=>{ if(!j) delete BUNDLE_CACHE[k]; return j; }); return BUNDLE_CACHE[k]; }
+let BUNDLE_BANDS=null; function bundleBandsTbl(){ if(!BUNDLE_BANDS) BUNDLE_BANDS=fetch('a10/bands.json').then(r=>r.ok?r.json():null).catch(()=>null).then(j=>{ if(!j) BUNDLE_BANDS=null; return j; }); return BUNDLE_BANDS; }
+async function bundleBands(P){ const all=[0,1,2,3]; if(!P||(!P.city&&!P.zip)) return all; const T=await bundleBandsTbl(); if(!T) return all; let m=0; // the file is split into 4 west-east bands; a typed town / ZIP says which to load
+  if(P.city){ for(const t in T.t) if(cityHit(P,[t])===true) m|=T.t[t]; if(!m) return all; } if(P.zip){ if(!T.z[P.zip]&&!P.city) return all; m|=T.z[P.zip]||0; }
+  return all.filter(b=>m&(1<<b)); }
+async function bundleRecs(L,P,lo,hi,keep){ const ks=[], bs=await bundleBands(P); for(let n=lo;n<=hi;n++){ const k=bundleKey(n); if(!ks.includes(k)) ks.push(k); if(ks.length>=24) break; }
+  const files=[]; ks.forEach(k=>bs.forEach(b=>files.push(k+'_'+b)));
+  const out=[]; for(const j of await Promise.all(files.map(bundleShard))){ if(!j) continue;
     for(const r of j.r){ if(r[0]<lo||r[0]>hi) continue; const [pd,pt,st,ty,sd]=j.s[r[1]].split('|'), [pc,ci,ms]=j.t[r[2]].split('|');
       const a={address:r[0],predir:pd,pretype:pt,street:st,streettype:ty,sufdir:sd,postcomm:pc,city:ci,msagcomm:ms,zipcode:j.z[r[3]]}; if(!keep(a)) continue;
-      out.push(Object.assign({lat:r[4]/1e5,lon:r[5]/1e5,_oid:null,_units:r[6]||1},L.rec(a))); } }
+      out.push(Object.assign({lat:r[4]/1e5,lon:r[5]/1e5,_oid:null,_units:(r[6]||1)*(r[7]?0:1)||1,_anch:!!r[7]},L.rec(a))); } }
   return out; }
 async function arcRecs(L,where,n){ const p={where,outFields:L.of+(L.oid?','+L.oid:''),returnGeometry:(L.nogeom||L.centroid)?'false':'true',outSR:'4326',resultRecordCount:String(n),f:'json'}; if(L.centroid) p.returnCentroid='true';
   const r=await fetch(L.url+'/query?'+new URLSearchParams(p)); const j=await r.json(); if(j.error) throw new Error(j.error.message);
@@ -509,14 +520,14 @@ async function mainBuilding(rings){
 async function localGeo(L,P){
   if(!P.num||!P.likeKey) return [];
   const c=P.city&&P.city.replace(/[^A-Z ]/g,''), out=[], seen=new Set();
-  const judge=(a,fz)=>{ const rp=G_DIRS[(a.pd||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) return null; const rs=G_DIRS[(a.sd||'').trim().toUpperCase()]; if(P.sufdir&&rs&&rs!==P.sufdir) return null; const sim=coreSim(P,a.toks,fz); if(sim<0.5) return null; const rt=(a.toks||[]).filter(w=>G_TYPEWORDS.has(w)).pop(); return sim-(P.type&&rt&&rt!==P.type?0.4:0); };
+  const judge=(a,fz)=>{ const rp=G_DIRS[(a.pd||'').trim().toUpperCase()]; if(P.predir&&rp&&rp!==P.predir) return null; const rs=G_DIRS[(a.sd||'').trim().toUpperCase()]; if(P.sufdir&&rs&&rs!==P.sufdir) return null; const sim0=coreSim(P,a.toks,fz); if(sim0<0.5) return null; const sim=sim0-(P.predir&&!rp?0.08:0); const rt=(a.toks||[]).filter(w=>G_TYPEWORDS.has(w)).pop(); return sim-(P.type&&rt&&rt!==P.type?0.4:0); };
   const lbl=(a,num)=>{ const z=(a.zip||'').trim(), tw=(P.city&&(a.towns||[]).find(t=>t&&cityHit(P,[t])===true&&!/ (COUNTY|CO)$/i.test(String(t).trim())))||a.town; return titleCase([num,...a.st].join(' '))+(tw?', '+titleCase(String(tw).trim()):'')+', OK'+(z&&z!=='00000'?' '+z:''); };
   const zp=a=>{ const z=(a.zip||'').trim(); return z&&z!=='00000'?z:null; };
   const add=(recs,fz)=>{ for(const a of recs){ if(+a.num!==+P.num) continue; const sim=judge(a,fz); if(sim==null) continue; const id=a.lat.toFixed(5)+a.lon.toFixed(5); if(seen.has(id)) continue; seen.add(id);
       out.push({lat:a.lat,lon:a.lon,label:lbl(a,P.num),quality:'exact',src:L.src,bonus:a._units>1?Math.min(L.bonus,15):L.bonus,cityOk:cityHit(P,a.towns),zip:zp(a),sim:sim-(fz?0.1:0),fuzzy:fz,_oid:a._oid}); } };
   const inSt=a=>String(a[L.sf]||'').toUpperCase().includes(P.likeKey);
-  add(await (L.bundle?bundleRecs(L,+P.num,+P.num,inSt):arcRecs(L,L.where?L.where(P):`${L.nf}=${+P.num} AND ${L.sf} LIKE '%${P.likeKey}%'`,50)),false);
-  if(!out.some(o=>o.cityOk!==false)&&c&&/^[A-Z]{4,}$/.test(P.likeKey)&&(L.fzWhere||L.cf)) add(await (L.bundle?bundleRecs(L,+P.num,+P.num,a=>[a.postcomm,a.city,a.msagcomm].includes(c)):arcRecs(L,L.fzWhere?L.fzWhere(P,c):`${L.nf}=${+P.num} AND ${L.cf(c)}`,300)),true);
+  add(await (L.bundle?bundleRecs(L,P,+P.num,+P.num,inSt):arcRecs(L,L.where?L.where(P):`${L.nf}=${+P.num} AND ${L.sf} LIKE '%${P.likeKey}%'`,50)),false);
+  if(!out.some(o=>o.cityOk!==false)&&c&&/^[A-Z]{4,}$/.test(P.likeKey)&&(L.fzWhere||L.cf)) add(await (L.bundle?bundleRecs(L,P,+P.num,+P.num,a=>[a.postcomm,a.city,a.msagcomm].includes(c)):arcRecs(L,L.fzWhere?L.fzWhere(P,c):`${L.nf}=${+P.num} AND ${L.cf(c)}`,300)),true);
   if(L.parcel&&L.oid&&out.length){ // move the pin from the lot center onto the main building
     const top=out.slice(0,3); const res=await withTimeout((async()=>{ const polys=await parcelPolys(L,top.map(o=>o._oid).filter(x=>x!=null));
         return Promise.all(top.map(async o=>{ const r=polys[o._oid]; return r?await mainBuilding(r).catch(()=>null):null; })); })().catch(()=>null),3000);
@@ -524,7 +535,7 @@ async function localGeo(L,P){
   if(!out.some(o=>o.cityOk!==false)){ // no exact record: estimate between neighbouring numbers on the same street in this source
     const n=+P.num; let w=null;
     if(L.nf&&!L.where) w=`${L.nf}>=${n-40} AND ${L.nf}<=${n+40} AND ${L.sf} LIKE '%${P.likeKey}%'`; else if(L.nbWhere&&n>=100) w=L.nbWhere(P,String(n).slice(0,-2));
-    if(w){ const recs=(await (L.bundle?bundleRecs(L,n-40,n+40,inSt):arcRecs(L,w,200)).catch(()=>[])).filter(a=>a.num!=null&&+a.num!==n&&Math.abs(+a.num-n)<=40);
+    if(w){ const recs=(await (L.bundle?bundleRecs(L,P,n-40,n+40,inSt):arcRecs(L,w,200)).catch(()=>[])).filter(a=>a.num!=null&&+a.num!==n&&Math.abs(+a.num-n)<=40);
       const groups={}; recs.forEach(a=>{ const sim=judge(a,false); if(sim==null) return; const k=a.toks.join(' ')+'|'+(a.town||''); (groups[k]=groups[k]||[]).push(Object.assign(a,{_sim:sim})); });
       for(const g of Object.values(groups)){
         const pick=arr=>({lo:arr.filter(a=>+a.num<n).sort((p,q)=>q.num-p.num)[0],hi:arr.filter(a=>+a.num>n).sort((p,q)=>p.num-q.num)[0]});
@@ -533,6 +544,28 @@ async function localGeo(L,P){
         out.push({lat:lo.lat+(hi.lat-lo.lat)*f,lon:lo.lon+(hi.lon-lo.lon)*f,label:lbl(lo,n),quality:'interp',src:'estimated between neighboring '+L.src.replace(/ \(.*\)$/,'')+'s',bonus:L.bonus,nbBonus:(gap<=12&&d<200)?30:0,
           cityOk:cityHit(P,lo.towns),zip:zp(lo),sim:lo._sim}); } } }
   return out; }
+// ---- provider 1e: NG911 road centerlines with official address ranges (okmaps.org statewide file, copied next to this page in rd/) ----
+const RD_CACHE={};
+function roadShard(k){ if(!RD_CACHE[k]) RD_CACHE[k]=fetch('rd/'+k+'.json').then(r=>r.ok?r.json():null).catch(()=>null).then(j=>{ if(!j) delete RD_CACHE[k]; return j; }); return RD_CACHE[k]; }
+function inRange(n,a,b){ if(!(a>0&&b>0)) return null; const lo=Math.min(a,b),hi=Math.max(a,b); if(n<lo||n>hi||hi-lo>20000) return null; if(a%2===b%2&&n%2!==a%2) return null; return hi===lo?0.5:(n-a)/(b-a); }
+function alongLine(c,f,side){ // c=[lat,lon,...] x1e5 in digitizing order; f = 0..1 from the 'from' end; side -1 left / +1 right
+  const pts=[]; for(let i=0;i+1<c.length;i+=2) pts.push([c[i]/1e5,c[i+1]/1e5]); if(pts.length<2) return pts[0]||[NaN,NaN];
+  const k=Math.cos(pts[0][0]*Math.PI/180), seg=[]; let L=0; for(let i=1;i<pts.length;i++){ const d=Math.hypot((pts[i][0]-pts[i-1][0])*110540,(pts[i][1]-pts[i-1][1])*111320*k); seg.push(d); L+=d; }
+  let t=Math.max(0,Math.min(1,f))*L, i=0; while(i<seg.length-1&&t>seg[i]){ t-=seg[i]; i++; }
+  const a=pts[i], b=pts[i+1], r=seg[i]?t/seg[i]:0, dy=(b[0]-a[0])*110540, dx=(b[1]-a[1])*111320*k, d=Math.hypot(dx,dy)||1, off=Math.min(15,L/4);
+  return [a[0]+(b[0]-a[0])*r+side*(-dx/d)*off/110540, a[1]+(b[1]-a[1])*r+side*(dy/d)*off/(111320*k)]; }
+async function clGeo(P){
+  if(!P.num||!P.core||!P.core.length) return []; const n=+P.num, tok=roadTok(P.core); if(!tok) return [];
+  const j=await roadShard(roadKey(tok,n)); if(!j) return []; const out=[];
+  for(const g of j.g){ const [si,tl,tr,zl,zr,lf,lt,rf,rt,c]=g; const fl=inRange(n,lf,lt), fr=inRange(n,rf,rt); if(fl==null&&fr==null) continue;
+    const [pd,pt,st,ty,sd]=j.s[si].split('|'); const rp=G_DIRS[pd]; if(P.predir&&rp&&rp!==P.predir) continue; const rs=G_DIRS[sd]; if(P.sufdir&&rs&&rs!==P.sufdir) continue;
+    const toks=gTok([pd,pt,st,ty,sd].filter(Boolean).join(' ')); let sim=coreSim(P,toks,false); if(sim<0.7||P.core.includes('HIGHWAY')!==toks.includes('HIGHWAY')) continue;
+    const rtp=toks.filter(w=>G_TYPEWORDS.has(w)).pop(); if(P.type&&rtp&&rtp!==P.type) sim-=0.4; if(sim<0.5) continue;
+    const L=fl!=null, tw=j.t[L?tl:tr].split('|'), z=j.z[L?zl:zr]||''; const [lat,lon]=alongLine(c,L?fl:fr,L?-1:1); if(!inOK(lat,lon)) continue;
+    const town=(P.city&&tw.find(t=>t&&cityHit(P,[t])===true&&!/ (COUNTY|CO)$/.test(t)))||tw.find(t=>t&&!/^(N\/A|UNINCORPORATED)$/.test(t))||'';
+    if(out.some(o=>Math.abs(o.lat-lat)<5e-4&&Math.abs(o.lon-lon)<5e-4)) continue;
+    out.push({lat,lon,label:titleCase([n,pd,pt,st,ty,sd].filter(Boolean).join(' '))+(town?', '+titleCase(town):'')+', OK'+(z?' '+z:''),quality:'interp',src:'estimated along the 911 road centerline',bonus:-5,cityOk:cityHit(P,tw),zip:z||null,sim}); }
+  return out.sort((a,b)=>(b.cityOk===true)-(a.cityOk===true)||b.sim-a.sim).slice(0,4); }
 // ---- provider 1c: City of Moore NG911 address locator (Moore only) ----
 async function mooreGeo(P){
   if(!P.num||!P.likeKey||(P.city&&P.city!=='MOORE')||(P.zip&&!/^(73160|73165|73170|73153)$/.test(P.zip))) return [];
@@ -596,7 +629,7 @@ async function suggest(term){
       return rs.slice(0,5).map(a=>{ const lbl=ngLabel(a); const i=lbl.indexOf(', ');
       return {lat:a.lat,lon:a.lon,label:lbl,l1:lbl.slice(0,i),l2:lbl.slice(i+2)+' · 911 address point',hasNum:true,num:P.num,quality:'exact',src:'OK 911 address point',cityOk:a._c}; }); })().catch(()=>[]));
   if(P.num&&P.likeKey) jobs.unshift((async()=>{ const L=LOCAL_SRC.find(x=>x.bundle); const n=+P.num;
-      const rs=(await bundleRecs(L,n,n,a=>String(a.street||'').toUpperCase().includes(P.likeKey))).filter(a=>{ const rp=G_DIRS[(a.pd||'').trim().toUpperCase()]; return !(P.predir&&rp&&rp!==P.predir)&&coreSim(P,a.toks)>=0.5; });
+      const rs=(await bundleRecs(L,P,n,n,a=>String(a.street||'').toUpperCase().includes(P.likeKey))).filter(a=>{ const rp=G_DIRS[(a.pd||'').trim().toUpperCase()]; return !(P.predir&&rp&&rp!==P.predir)&&coreSim(P,a.toks)>=0.5; });
       rs.forEach(a=>a._c=cityHit(P,a.towns)); rs.sort((x,y)=>(y._c===true)-(x._c===true));
       return rs.slice(0,5).map(a=>{ const l1=titleCase([n,...a.st].join(' ')), l2=(a.town?titleCase(a.town)+', ':'')+'OK'+(a.zip?' '+a.zip:'');
         return {lat:a.lat,lon:a.lon,label:l1+', '+l2,l1,l2:l2+' · 911 address point',hasNum:true,num:P.num,quality:'exact',src:'911 address point (Oklahoma NG911 statewide file)',cityOk:a._c}; }); })().catch(()=>[]));
@@ -619,7 +652,7 @@ async function geocode(term){
   const fix=getFix(term);
   if(fix) { const p={lat:fix.lat,lon:fix.lon,label:fix.label,baseLabel:fix.label,quality:'corrected',src:'pin you moved (saved on this device)',term}; p.cands=[p]; return p; }
   const P=parseAddr(term);
-  const fns=[ng911Geo,censusGeo,nominatimGeo,photonGeo,Object.assign(mooreGeo,{local:1,src:{}}),...LOCAL_SRC.map(L=>Object.assign(P=>localGeo(L,P),{local:1,src:L}))];
+  const fns=[ng911Geo,censusGeo,nominatimGeo,photonGeo,Object.assign(mooreGeo,{local:1,src:{}}),Object.assign(clGeo,{local:1,src:{}}),...LOCAL_SRC.map(L=>Object.assign(P=>localGeo(L,P),{local:1,src:L}))];
   const res=fns.map(()=>null);
   const provs=fns.map((f,i)=>{ const S=f.src; if(S&&S._skipUntil>Date.now()) return Promise.resolve(res[i]=[]); // a source that keeps failing is rested for a minute
     const run=(P.ordLike&&(f.local||f===ng911Geo))?Promise.all([f(P),f(Object.assign({},P,{likeKey:P.ordLike}))]).then(([a,b])=>(a||[]).concat(b||[])):f(P);
@@ -639,7 +672,7 @@ async function geocode(term){
   all.forEach(c=>c.score=scoreCand(c,P));
   if(!P.city&&!P.zip){ const ref=(typeof lastFix!=='undefined'&&lastFix)?[lastFix.lat,lastFix.lon]:[map.getCenter().lat,map.getCenter().lng]; all.forEach(c=>c.score+=8*Math.max(0,1-map.distance(ref,[c.lat,c.lon])/200000)); } // no town typed: prefer matches near you / the map
   // agreement bonus: independent sources within 150 m of each other
-  all.forEach(c=>{ const srcs=new Set(all.filter(o=>o!==c&&o.src!==c.src&&(o.quality==='exact'||o.quality==='interp')&&map.distance([c.lat,c.lon],[o.lat,o.lon])<150).map(o=>o.src)); c.score+=Math.min(2,srcs.size)*6; });
+  const bsrc=x=>String(x||'').replace(/ \(main building\)$/,''); all.forEach(c=>{ const srcs=new Set(all.filter(o=>o!==c&&bsrc(o.src)!==bsrc(c.src)&&(o.quality==='exact'||o.quality==='interp')&&map.distance([c.lat,c.lon],[o.lat,o.lon])<150).map(o=>bsrc(o.src))); c.score+=Math.min(2,srcs.size)*6; if(c.quality==='exact'||c.quality==='interp') c.score+=Math.min(2,new Set(all.filter(o=>o.src!==c.src&&o.quality==='street'&&map.distance([c.lat,c.lon],[o.lat,o.lon])<250).map(o=>o.src)).size)*2; });
   { const bad=c=>c.cityOk===false&&!(P.zip&&String(c.label||'').indexOf(P.zip)>=0); const anyOk=all.some(c=>c.cityOk===true);
     all.sort((a,b)=>(anyOk?(bad(a)-bad(b)):0)||(b.score-a.score)); } // a result in the wrong town never beats one in the typed town
   const kept=[]; for(const c of all){ const k=kept.find(o=>map.distance([o.lat,o.lon],[c.lat,c.lon])<(c.quality==='town'||o.quality==='town'?1500:(c.quality==='exact'&&o.quality==='exact'?300:60))); if(k){ if(!k.also.includes(c.src)&&k.src!==c.src) k.also.push(c.src); continue; } c.also=[]; kept.push(c); }
